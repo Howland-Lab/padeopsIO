@@ -271,11 +271,11 @@ class RANSBudget(NewBudget):
 
     __slots__ = ()
     req_keys = [
-        ["ubar", "vbar", "wbar", "pbar", "tau11", "tau12", "tau13", "uu", "uv", "uw"],
-        ["ubar", "vbar", "wbar", "pbar", "tau12", "tau22", "tau23", "uv", "vv", "vw"],
-        ["ubar", "vbar", "wbar", "pbar", "tau13", "tau23", "tau33", "uw", "vw", "ww"],
+        fluids.uvw_keys + fluids.rs_keys[0] + fluids.tau_keys[0] + ["pbar"],
+        fluids.uvw_keys + fluids.rs_keys[1] + fluids.tau_keys[1] + ["pbar"],
+        fluids.uvw_keys + fluids.rs_keys[2] + fluids.tau_keys[2] + ["pbar"],
     ]  # required keys in x, y, z
-    opt_keys = [["xAD"], ["yAD"], ["Tbar"]]  # optional keys
+    opt_keys = [["xAD", "dpdx"], ["yAD", "dpdy"], ["Tbar", "dpdz"]]  # optional keys
 
     def __init__(
         self,
@@ -544,24 +544,7 @@ class BudgetVorticity(NewBudget):
     """
 
     __slots__ = ()
-    req_keys = [
-        "ubar",
-        "vbar",
-        "wbar",
-        "Tbar",
-        "uu",
-        "uv",
-        "uw",
-        "vv",
-        "vw",
-        "ww",
-        "tau11",
-        "tau12",
-        "tau13",
-        "tau22",
-        "tau23",
-        "tau33",
-    ]
+    req_keys = fluids.uvw_keys + fluids.rs_keys_list + fluids.tau_keys_list + ["Tbar"]
     opt_keys = ["xAD", "yAD"]
 
     def __init__(
@@ -683,26 +666,10 @@ class BudgetMKE(NewBudget):
 
     __slots__ = ()
 
-    req_keys = [
-        "ubar",
-        "vbar",
-        "wbar",
-        "pbar",
-        "Tbar",
-        "uu",
-        "vv",
-        "ww",
-        "uv",
-        "uw",
-        "vw",
-        "tau11",
-        "tau22",
-        "tau33",
-        "tau12",
-        "tau13",
-        "tau23",
-    ]
-    opt_keys = ["xAD", "yAD"]
+    req_keys = (
+        fluids.uvw_keys + fluids.rs_keys_list + fluids.tau_keys_list + ["pbar", "Tbar"]
+    )
+    opt_keys = ["xAD", "yAD", "dpdx", "dpdy", "dpdz"]
 
     def __init__(self, budget, base_agg=0, Fr=None, theta0=None):
         """
