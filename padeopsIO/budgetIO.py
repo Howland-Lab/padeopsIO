@@ -34,6 +34,31 @@ class BudgetIO:
 
     key = budgetkey.get_key()
 
+    @property
+    def x(self):
+        return self.budget.coords.get("x", None).to_numpy()  # for now, return numpy array
+
+    @property
+    def y(self):
+        return self.budget.coords.get("y", None).to_numpy()  # for now, return numpy array
+
+    @property
+    def z(self):
+        return self.budget.coords.get("z", None).to_numpy()  # for now, return numpy array
+
+    # NOTE: these are deprecated, use x, y, z instead
+    @property
+    def xLine(self):
+        return self.x
+
+    @property
+    def yLine(self):
+        return self.x
+
+    @property
+    def zLine(self):
+        return self.x
+
     def print(self, *args):
         """Prints statements if self.quiet is False"""
         if not self.quiet:
@@ -427,16 +452,16 @@ class BudgetIO:
         self.field = GridDataset(x=x, y=y, z=z)
         self.budget = GridDataset(x=x, y=y, z=z)
         self.grid = self.field.grid  # Grid3(x=x, y=y, z=z)
-        # copy grid keys into the namespace of `self`
-        for xi in ["x", "y", "z"]:
-            for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
-                setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
+        # # copy grid keys into the namespace of `self`
+        # for xi in ["x", "y", "z"]:
+        #     for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
+        #         setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
 
-        self.xLine, self.yLine, self.zLine = (
-            self.x,
-            self.y,
-            self.z,
-        )  # try to phase out xLine, etc.
+        # self.xLine, self.yLine, self.zLine = (
+        #     self.x,
+        #     self.y,
+        #     self.z,
+        # )  # try to phase out xLine, etc.
 
         self.origin = origin  # default origin location
         if normalize_origin:  # not None or False
@@ -867,9 +892,7 @@ class BudgetIO:
                 / f"Run{self.runid:02d}_{dict_match[term]:s}_t{self.tidx:06d}.out"
             )
             tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1)
-            self.field[term] = tmp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
-            )  # reshape into a 3D array
+            self.field[term] = tmp.reshape(self.grid.nxi, order="F")  # reshape into a 3D array
 
         self.print(
             f"BudgetIO loaded fields {str(list(terms)):s} at tidx: {self.tidx:d}, time: {self.time:.06f}"
@@ -1038,9 +1061,7 @@ class BudgetIO:
             self.budget_tidx = tidx  # update self.budget_tidx
 
             tmp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
-            self.budget[key] = tmp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
-            )  # reshape into a 3D array
+            self.budget[key] = tmp.reshape(self.grid.nxi, order="F")  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
             print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
@@ -1707,11 +1728,11 @@ class BudgetIO:
                 key_name = "{:s}_{:d}".format(lab, tidx)
                 sl[key_name] = np.fromfile(
                     fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.ny, self.nz), order="F")
+                ).reshape((self.grid.ny, self.grid.nz), order="F")
 
-        sl["x"] = self.xLine[[xid - 1]]
-        sl["y"] = self.yLine
-        sl["z"] = self.zLine
+        sl["x"] = self.x[[xid - 1]]
+        sl["y"] = self.y
+        sl["z"] = self.z
 
         # build and save the extents, either in 1D, 2D, or 3D
         ext = []
@@ -1758,11 +1779,11 @@ class BudgetIO:
                 key_name = "{:s}_{:d}".format(lab, tidx)
                 sl[key_name] = np.fromfile(
                     fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.nx, self.nz), order="F")
+                ).reshape((self.grid.nx, self.grid.nz), order="F")
 
-        sl["x"] = self.xLine
-        sl["y"] = self.yLine[[yid - 1]]
-        sl["z"] = self.zLine
+        sl["x"] = self.x
+        sl["y"] = self.y[[yid - 1]]
+        sl["z"] = self.z
 
         # build and save the extents, either in 1D, 2D, or 3D
         ext = []
@@ -1809,11 +1830,11 @@ class BudgetIO:
                 key_name = "{:s}_{:d}".format(lab, tidx)
                 sl[key_name] = np.fromfile(
                     fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.nx, self.ny), order="F")
+                ).reshape((self.grid.nx, self.grid.ny), order="F")
 
-        sl["x"] = self.xLine
-        sl["y"] = self.yLine
-        sl["z"] = self.zLine[[zid - 1]]
+        sl["x"] = self.x
+        sl["y"] = self.y
+        sl["z"] = self.z[[zid - 1]]
 
         # build and save the extents, either in 1D, 2D, or 3D
         ext = []
