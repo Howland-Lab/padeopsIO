@@ -36,15 +36,21 @@ class BudgetIO:
 
     @property
     def x(self):
-        return self.budget.coords.get("x", None).to_numpy()  # for now, return numpy array
+        return self.budget.coords.get(
+            "x", None
+        ).to_numpy()  # for now, return numpy array
 
     @property
     def y(self):
-        return self.budget.coords.get("y", None).to_numpy()  # for now, return numpy array
+        return self.budget.coords.get(
+            "y", None
+        ).to_numpy()  # for now, return numpy array
 
     @property
     def z(self):
-        return self.budget.coords.get("z", None).to_numpy()  # for now, return numpy array
+        return self.budget.coords.get(
+            "z", None
+        ).to_numpy()  # for now, return numpy array
 
     # NOTE: these are deprecated, use x, y, z instead
     @property
@@ -892,7 +898,9 @@ class BudgetIO:
                 / f"Run{self.runid:02d}_{dict_match[term]:s}_t{self.tidx:06d}.out"
             )
             tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1)
-            self.field[term] = tmp.reshape(self.grid.nxi, order="F")  # reshape into a 3D array
+            self.field[term] = tmp.reshape(
+                self.grid.nxi, order="F"
+            )  # reshape into a 3D array
 
         self.print(
             f"BudgetIO loaded fields {str(list(terms)):s} at tidx: {self.tidx:d}, time: {self.time:.06f}"
@@ -1061,7 +1069,9 @@ class BudgetIO:
             self.budget_tidx = tidx  # update self.budget_tidx
 
             tmp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
-            self.budget[key] = tmp.reshape(self.grid.nxi, order="F")  # reshape into a 3D array
+            self.budget[key] = tmp.reshape(
+                self.grid.nxi, order="F"
+            )  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
             print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
@@ -1694,7 +1704,76 @@ class BudgetIO:
 
         return t_list
 
-    def Read_x_slice(self, xid, field_terms=["u"], tidx_list=[]):
+    def unique_slice_tidx(self, return_last=False):
+        """
+        Searches for unique slice time IDs.
+        """
+        return self.unique_tidx(search_str=".*t(\d+)_.*.pl.*", return_last=return_last)
+
+    def _read_slice(self, direction, _id, field_terms, tidx_list=None):
+        """
+        Helper function to read 2D slice data from PadeOps.
+
+        Arguments
+        ---------
+        direction : str
+            Direction ("x", "y", or "z")
+        _id : int
+            Index of the slice. NOTE: Fortran indexing starts at 1, not 0.
+        field_terms : list
+            List of terms to read in.
+        tidx_list : list, optional
+            List of time IDs. If None, calls self.unique_time_slice() to get
+            the last TIDX. Default None.
+
+        Returns
+        -------
+        GridDataset
+            xarray of the slice data
+        """
+
+        if isinstance(field_terms, str):
+            field_terms = [field_terms]
+
+        if tidx_list is None:
+            tidx_list = self.unique_slice_tidx(return_last=True)
+
+        if not hasattr(tidx_list, "__iter__"):
+            tidx_list = [tidx_list]
+
+        # return an xarray Dataset
+        ret = (
+            GridDataset(coords=self.budget.coords)
+            .isel({direction: _id - 1})
+            .expand_dims({"tidx": tidx_list})
+        )
+
+        # loop through terms, for each term assemble an array
+        for term in field_terms:
+            arr = np.zeros((len(tidx_list),) + tuple(ret.grid.nxi))
+
+            # loop through TIDX and load:
+            for k, tidx in enumerate(tidx_list):
+                fname = (
+                    self.dirname
+                    / f"Run{self.runid:02d}_t{tidx:06d}_{direction:s}{_id:05d}.pl{term:s}"
+                )
+
+                tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1).reshape(
+                    ret.grid.nxi, order="F"
+                )
+                arr[k] = tmp
+            ret[term] = (
+                [
+                    "tidx",
+                ]
+                + ret.grid.keys(),
+                arr,
+            )
+
+        return ret
+
+    def read_x_slice(self, xid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1702,7 +1781,7 @@ class BudgetIO:
         ---------
         xid : int
             integer of xid dumped by initialize.F90. NOTE: Fortran indexing starts at 1.
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1710,43 +1789,11 @@ class BudgetIO:
 
         Returns
         -------
-        sl : dict
-            formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
+        return self._read_slice("x", xid, field_terms, tidx_list)
 
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'x':s}{xid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.grid.ny, self.grid.nz), order="F")
-
-        sl["x"] = self.x[[xid - 1]]
-        sl["y"] = self.y
-        sl["z"] = self.z
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext
-
-        return sl
-
-    def Read_y_slice(self, yid, field_terms=["u"], tidx_list=[]):
+    def read_y_slice(self, yid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1754,7 +1801,7 @@ class BudgetIO:
         ---------
         yid : int
             integer of yid dumped by initialize.F90
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1762,42 +1809,11 @@ class BudgetIO:
 
         Returns
         -------
-        sl (dict) : formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
+        return self._read_slice("y", yid, field_terms, tidx_list)
 
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'y':s}{yid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.grid.nx, self.grid.nz), order="F")
-
-        sl["x"] = self.x
-        sl["y"] = self.y[[yid - 1]]
-        sl["z"] = self.z
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext  # TODO: make into Slice() object
-
-        return sl
-
-    def Read_z_slice(self, zid, field_terms=["u"], tidx_list=[]):
+    def read_z_slice(self, zid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1805,7 +1821,7 @@ class BudgetIO:
         ---------
         zid : int
             integer of zid dumped by initialize.F90
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1813,40 +1829,9 @@ class BudgetIO:
 
         Returns
         -------
-        sl (dict) : formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
-
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'z':s}{zid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.grid.nx, self.grid.ny), order="F")
-
-        sl["x"] = self.x
-        sl["y"] = self.y
-        sl["z"] = self.z[[zid - 1]]
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext
-
-        return sl
+        return self._read_slice("z", zid, field_terms, tidx_list)
 
     def _read_turb_file(self, prop, tid=None, turb=1):
         """
