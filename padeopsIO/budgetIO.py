@@ -457,17 +457,7 @@ class BudgetIO:
         # initialize grid variable
         self.field = GridDataset(x=x, y=y, z=z)
         self.budget = GridDataset(x=x, y=y, z=z)
-        self.grid = self.field.grid  # Grid3(x=x, y=y, z=z)
-        # # copy grid keys into the namespace of `self`
-        # for xi in ["x", "y", "z"]:
-        #     for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
-        #         setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
-
-        # self.xLine, self.yLine, self.zLine = (
-        #     self.x,
-        #     self.y,
-        #     self.z,
-        # )  # try to phase out xLine, etc.
+        self.grid = self.field.grid
 
         self.origin = origin  # default origin location
         if normalize_origin:  # not None or False
@@ -711,7 +701,7 @@ class BudgetIO:
         write_dir = write_dir or self.dirname
 
         if budget_terms == "current":
-            key_subset = self.budget.keys()  # currently loaded budgets
+            key_subset = self.budget.data_vars  # currently loaded budgets
 
         else:
             # need to parse budget_terms with the key
@@ -720,6 +710,8 @@ class BudgetIO:
         # load budgets (TODO: add fields)
         if xy_avg:
             sl = self.xy_avg(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
+            sl['x'] = np.nan
+            sl['y'] = np.nan  # hotfix
         else:
             sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
@@ -925,7 +917,7 @@ class BudgetIO:
             self.printv("clear_budgets(): no budgets to clear. ")
             return
 
-        loaded_keys = self.budget.keys()
+        loaded_keys = self.budget.data_vars
         self.budget = GridDataset(coords=self.budget.coords)
         self.budget_n = None
         self.budget_tidx = None  # reset to final TIDX
@@ -982,19 +974,19 @@ class BudgetIO:
             # clear budgets -- we are explicitly overwriting budgets
             self.clear_budgets()
 
-        elif self.budget.keys() is not None:
+        elif len(self.budget) > 0:
             # budgets are already loaded, check which ones
             if (self.budget_tidx == tidx) or (tidx is None):
                 # remove items that have already been loaded in -- this omits overwriting these terms
                 key_subset = {
                     key: key_subset[key]
                     for key in key_subset
-                    if key not in self.budget.keys()
+                    if key not in self.budget.data_vars
                 }
 
                 if self.verbose:  # print which keys were removed
                     remove_keys = [
-                        key for key in key_subset if key in self.budget.keys()
+                        key for key in key_subset if key in self.budget.data_vars
                     ]
                     if len(remove_keys) > 0:
                         self.print(
@@ -1102,7 +1094,7 @@ class BudgetIO:
 
         self.printv(
             "BudgetIO loaded the following budgets from .mat: ",
-            list(key_subset.keys()),
+            list(key_subset),
         )
 
     def _parse_budget_terms(self, budget_terms):
@@ -1132,7 +1124,7 @@ class BudgetIO:
             return dict()
 
         elif budget_terms == "current":
-            budget_terms = list(self.budget.keys())
+            budget_terms = list(self.budget.data_vars)
 
         elif budget_terms == "all":
             budget_terms = self.existing_terms()
@@ -1160,6 +1152,10 @@ class BudgetIO:
 
         # parse through terms: they are either 1) valid, 2) missing (but valid keys), or 3) invalid (not in BudgetIO.key)
         existing_keys = self.existing_terms()
+        if not self.associate_padeops: 
+            # just return all the keys in `existing_keys` in dictionary form to match padeops
+            return {key: None for key in budget_terms if key in existing_keys}
+
         # corresponding associated tuples (#, #)
         existing_tup = [self.key[key] for key in existing_keys]
 
@@ -1285,7 +1281,7 @@ class BudgetIO:
             budget_terms = (
                 [budget_terms] if isinstance(budget_terms, str) else budget_terms
             )
-            keys = [term for term in budget_terms if term in self.budget.keys()]
+            keys = [term for term in budget_terms if term in self.budget.data_vars]
 
         elif field is not None:
             raise NotImplementedError("Deprecated v0.2.0")
@@ -1620,7 +1616,7 @@ class BudgetIO:
                     key for key in ret if key[0] != "_"
                 ]  # ignore `__header__`, etc.
 
-            budget_list = [BudgetIO.key[t][0] for t in t_list]
+            budget_list = [BudgetIO.key[t][0] for t in t_list if t in BudgetIO.key]
 
         if len(budget_list) == 0:
             self.warn("existing_budgets(): No associated budget files found. ")
