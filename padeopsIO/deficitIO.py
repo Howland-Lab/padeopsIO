@@ -209,7 +209,7 @@ class DeficitIO(pio.BudgetIO):
 
             temp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
             self.budget[key] = temp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
+                (self.grid.nx, self.grid.ny, self.grid.nz), order="F"
             )  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
@@ -241,13 +241,13 @@ class DeficitIO(pio.BudgetIO):
         Calculates the velocity and reynolds stress gradients
         """
 
-        self.budget["ddxk_delta_uiuj"] = np.zeros([self.nx, self.ny, self.nz, 3, 3, 3])
+        self.budget["ddxk_delta_uiuj"] = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3, 3])
         self.budget["ddxk_delta_ui_base_uj"] = np.zeros(
-            [self.nx, self.ny, self.nz, 3, 3, 3]
+            [self.grid.nx, self.grid.ny, self.grid.nz, 3, 3, 3]
         )
 
-        tmp_delta_uiuj = np.zeros([self.nx, self.ny, self.nz, 3, 3])
-        tmp_delta_ui_base_uj = np.zeros([self.nx, self.ny, self.nz, 3, 3])
+        tmp_delta_uiuj = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3])
+        tmp_delta_ui_base_uj = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3])
 
         tmp_delta_uiuj[:, :, :, 0, 0] = self.budget["delta_uu"]
         tmp_delta_uiuj[:, :, :, 0, 1] = self.budget["delta_uv"]
