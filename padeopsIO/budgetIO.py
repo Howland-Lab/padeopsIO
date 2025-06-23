@@ -2098,4 +2098,4 @@ class BudgetIO:
         """
         Returns a string representation of the BudgetIO object.
         """
-        return (f"BudgetIO(dirname={str(self.dirname)}, runid={self.runid}, ")
+        return (f"BudgetIO(dirname={str(self.dirname.resolve())}, runid={self.runid})")
