@@ -92,7 +92,7 @@ class BudgetIO:
         show_warnings: bool = True,
         filename: Union[str, None] = None,
         runid: Union[int, None] = None,
-        normalize_origin: Union[tuple[int], str, bool] = False,
+        normalize_origin: Union[tuple, str, bool] = False,
         src: Union[Literal["padeops", "npz", "npy", "mat"], None] = None,
         padeops: bool = False,
         npz: bool = False,
