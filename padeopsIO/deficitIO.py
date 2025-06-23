@@ -43,7 +43,7 @@ class DeficitIO(pio.BudgetIO):
         if self.associate_padeops:
             # capturing *_budget(\d+)* in filenames
             budget_list = self.unique_tidx(
-                search_str=f"Run{self.runid:02d}.*_deficit_budget(\d+).*"
+                search_str=rf"Run{self.runid:02d}.*_deficit_budget(\d+).*"
             )
 
         else:
@@ -105,14 +105,14 @@ class DeficitIO(pio.BudgetIO):
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
+                search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
                 terms = self.unique_tidx(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
                 # reynolds stress budgets
                 if b == 4:
                     for component in budget4_comp_dict:
-                        search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
+                        search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
                         terms = self.unique_tidx(search_str=search_str)
                         tup_list += [
                             ((b, term)) for term in terms
@@ -203,7 +203,7 @@ class DeficitIO(pio.BudgetIO):
                 )
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
+                re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx
 
@@ -231,7 +231,7 @@ class DeficitIO(pio.BudgetIO):
         # TODO: fix for .npz
 
         return self.unique_tidx(
-            return_last=return_last, search_str="Run{:02d}.*deficit_budget.*_t(\d+).*"
+            return_last=return_last, search_str=r"Run{:02d}.*deficit_budget.*_t(\d+).*"
         )
 
     # =============== TODO: MOVE BUDGET COMPUTATION TO SEPARATE FILE ===============

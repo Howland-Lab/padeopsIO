@@ -1059,7 +1059,7 @@ class BudgetIO:
                 raise FileNotFoundError(f"No files found at {searchstr}")
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
+                re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx  # update self.budget_tidx
 
@@ -1472,7 +1472,7 @@ class BudgetIO:
             return None  # TODO - is this lost information? is it useful information?
 
         if search_str is None:
-            search_str = "Run{:02d}.*_t(\d+).*.out"  # default to searching through TIDX
+            search_str = r"Run{:02d}.*_t(\d+).*.out"  # default to searching through TIDX
         runid = self.runid
 
         # retrieves filenames and parses unique integers, returns an array of unique integers
@@ -1502,7 +1502,7 @@ class BudgetIO:
             return None
 
         return self.get_unique_ids(
-            return_last=return_last, search_str="Run{:02d}.*_t(\d+).*.out", 
+            return_last=return_last, search_str=r"Run{:02d}.*_t(\d+).*.out", 
         )
 
 
@@ -1527,7 +1527,7 @@ class BudgetIO:
             return None
 
         return self.get_unique_ids(
-            return_last=return_last, search_str="Run{:02d}.*budget.*_t(\d+).*"
+            return_last=return_last, search_str=r"Run{:02d}.*budget.*_t(\d+).*"
         )
 
     def unique_times(self, return_last=False):
@@ -1572,7 +1572,7 @@ class BudgetIO:
             tidx = self.unique_budget_tidx(return_last=False)
 
         filenames = self.dirname.glob("*")
-        search_str = "Run{:02d}.*budget.*_t{:06d}_n(\d+).*"
+        search_str = r"Run{:02d}.*budget.*_t{:06d}_n(\d+).*"
 
         # the following is not efficient, but sufficient for now
         n_list = []
@@ -1604,7 +1604,7 @@ class BudgetIO:
             return None
 
         return self.get_unique_ids(
-            return_last=return_last, search_str="Run{:02d}.*_n(\d+).*"
+            return_last=return_last, search_str=r"Run{:02d}.*_n(\d+).*"
         )
 
     def existing_budgets(self):
@@ -1617,9 +1617,9 @@ class BudgetIO:
             runid = self.runid
             # capturing *_budget(\d+)* in filenames
             budget_list = [
-                int(re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))[0])
+                int(re.findall(r"Run{:02d}.*_budget(\d+).*".format(runid), str(name))[0])
                 for name in filenames
-                if re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))
+                if re.findall(r"Run{:02d}.*_budget(\d+).*".format(runid), str(name))
             ]
         else:
             if self.associate_npz:
@@ -1678,7 +1678,7 @@ class BudgetIO:
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str = f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
+                search_str = rf"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
                 terms = self.get_unique_ids(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
@@ -1720,7 +1720,7 @@ class BudgetIO:
         """
         Searches for unique slice time IDs.
         """
-        return self.get_unique_ids(search_str=".*t(\d+)_.*.pl.*", return_last=return_last)
+        return self.get_unique_ids(search_str=r".*t(\d+)_.*.pl.*", return_last=return_last)
 
     def _read_slice(self, direction, _id, field_terms, tidx_list=None):
         """
@@ -1917,7 +1917,7 @@ class BudgetIO:
         if tidx is None:
             tidx = [self.last_tidx]  # just try the last TIDX by default
         elif isinstance(tidx, str) and tidx == "all":
-            tidx = self.get_unique_ids(search_str="Run{:02d}.*_t(\d+).*.pow")
+            tidx = self.get_unique_ids(search_str=r"Run{:02d}.*_t(\d+).*.pow")
 
         if not hasattr(tidx, "__iter__"):
             tidx = np.atleast_1d(tidx)

@@ -47,7 +47,7 @@ def key_search_r(nested_dict, key):
 def query_logfile(
     filename,
     search_terms=["TIDX"],
-    fsearch=r"({:s}).*\s+([-+]?(\d+(\.\d*)?|\.\d+)([dDeE][-+]?\d+)?)",
+    fsearch=None,
     maxlen=None,
     crop_equal=True,
 ):
@@ -78,6 +78,9 @@ def query_logfile(
     # build the regex match
     for term in search_terms:
         search_str += term + "|"
+
+    if fsearch is None:
+        fsearch = r"({:s}).*\s+([-+]?(\d+(\.\d*)?|\.\d+)([dDeE][-+]?\d+)?)"
 
     search = fsearch.format(search_str[:-1])  # do not include last pipe in search_str
 
@@ -214,9 +217,9 @@ def get_unique_ids(dirname, search_str, return_last=False):
     Pulls all the unique ids of the capture group in `search_str`
     for all the files from directory `dirname`.
 
-    For example, the search string "*_t(\d+)*" gleans the integer 
+    For example, the search string "*_t(\d+)*" gleans the integer
     suceeding _t for each file in the directory, and returns the unique
-    values as a list. 
+    values as a list.
 
     Parameters
     ----------

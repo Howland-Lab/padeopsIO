@@ -64,7 +64,7 @@ def parser(filename, to_lowercase=True):
                 continue
 
             # within a namelist now; search `variable` = `value`
-            res = re.search("(\S+)\s+=\s+(\S+)", line)
+            res = re.search(r"(\S+)\s+=\s+(\S+)", line)
             if res is not None:
                 # found variable/value pairing
                 key = res.group(1)

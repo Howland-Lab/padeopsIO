@@ -297,9 +297,9 @@ class RANSBudget(NewBudget):
         budget : budget.Budget object
         base_agg : int
         Ro : float
-            Rossby number, defined U/(\Omega L)
+            Rossby number, defined U/(Omega L)
         Fr : float
-            Froude number, defined U/\sqrt{g L}
+            Froude number, defined U/sqrt{g L}
         lat : float
             Latitude, in degrees
         galpha : float
@@ -444,9 +444,9 @@ class BudgetDeficit(NewBudget):
             Budget object for the background flow (precursor sim.)
         base_agg : int
         Ro : float
-            Rossby number, defined U/(\Omega L)
+            Rossby number, defined U/(Omega L)
         Fr : float
-            Froude number, defined U/\sqrt{g L}
+            Froude number, defined U/sqrt{g L}
         lat : float
             Latitude, in degrees
         """
@@ -558,13 +558,13 @@ class BudgetVorticity(NewBudget):
         budget : budget.Budget object
         base_agg : int
         Ro : float
-            Rossby number, defined U/(\Omega L)
+            Rossby number, defined U/(Omega L)
         lat : float
             Latitude, in degrees
         fplane : bool
             Use f-plane approx. Default True
         Fr : float
-            Froude number, defined U/\sqrt{g L}
+            Froude number, defined U/sqrt{g L}
         theta0 : float
             Reference potential temperature (K)
         """
@@ -680,13 +680,13 @@ class BudgetMKE(NewBudget):
         budget : budget.Budget object
         base_agg : int
         Ro : float
-            Rossby number, defined U/(\Omega L)
+            Rossby number, defined U/(Omega L)
         lat : float
             Latitude, in degrees
         fplane : bool
             Use f-plane approx. Default True
         Fr : float
-            Froude number, defined U/\sqrt{g L}
+            Froude number, defined U/sqrt{g L}
         theta0 : float
             Reference potential temperature (K)
         """

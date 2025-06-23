@@ -76,7 +76,7 @@ def compute_delta_field(
 ):
     """
     Computes deficit fields between primary and precursor simulations, e.g.:
-        \Delta u = u_primary - u_precursor
+        Delta u = u_primary - u_precursor
 
     This definition follows the double decomposition in Martinez-Tossas, et al. (2021).
 
@@ -150,7 +150,7 @@ def compute_RANS(
     direction : int
         Direction, either 0, 1, 2 (x, y, z, respectively)
     Ro : float
-        Rossby number, defined Ro = G/(\Omega L)
+        Rossby number, defined Ro = G/(Omega L)
     lat : float
         Latitude, in radians. Default None
     galpha : float, optional
