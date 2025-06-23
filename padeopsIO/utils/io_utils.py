@@ -1,8 +1,17 @@
 # Additional IO functions (some work-in-progress)
-# USAGE: from io_utils import *
 
 import re
 import numpy as np
+from pathlib import Path
+
+
+__all__ = [
+    "key_search_r",
+    "query_logfile",
+    "structure_to_dict",
+    "deserialize_cross_platform_paths",
+    "get_unique_ids",
+]
 
 
 def key_search_r(nested_dict, key):
@@ -137,3 +146,108 @@ def structure_to_dict(arr):
                 ret[key] = [item for item in val.flat]  # store the key/value pairing
 
     return ret  # return (nested) dict
+
+
+def deserialize_cross_platform_paths(npz_file, key):
+    """
+    Safely deserializes numpy arrays containing cross-platform path objects.
+
+    Serialized paths stored as PosixPath on Unix systems are not compatible
+    with Windows and vice versa. This function handles the cross-platform
+    compatibility by temporarily monkey-patching pathlib classes during
+    deserialization.
+
+    Parameters
+    ----------
+    npz_file : numpy.lib.npyio.NpzFile
+        The loaded .npz file object from np.load()
+    key : str
+        The key/name of the array to deserialize from the npz file
+
+    Returns
+    -------
+    object
+        The deserialized object with platform-compatible paths
+
+    Raises
+    ------
+    KeyError
+        If the key doesn't exist in the npz file
+    Exception
+        Re-raises any non-path-related errors
+    """
+    try:
+        return npz_file[key].item()
+    except (NotImplementedError, OSError) as e:
+        # Check if this is specifically a cross-platform path issue
+        if "PosixPath" in str(e) or "WindowsPath" in str(e):
+            import pathlib
+            import platform
+
+            # Store original classes to restore later
+            original_posix = getattr(pathlib, "PosixPath", None)
+            original_windows = getattr(pathlib, "WindowsPath", None)
+
+            try:
+                # Map paths to current platform's native path class
+                if platform.system() == "Windows":
+                    pathlib.PosixPath = pathlib.WindowsPath
+                else:
+                    pathlib.WindowsPath = pathlib.PosixPath
+
+                # Try deserialization again with patched pathlib
+                return npz_file[key].item()
+
+            finally:
+                # Restore original classes to avoid side effects
+                if original_posix:
+                    pathlib.PosixPath = original_posix
+                if original_windows:
+                    pathlib.WindowsPath = original_windows
+        else:
+            # Re-raise if it's not a path-related error
+            raise e
+
+
+def get_unique_ids(dirname, search_str, return_last=False):
+    """
+    Pulls all the unique ids of the capture group in `search_str`
+    for all the files from directory `dirname`.
+
+    For example, the search string "*_t(\d+)*" gleans the integer 
+    suceeding _t for each file in the directory, and returns the unique
+    values as a list. 
+
+    Parameters
+    ----------
+    dirname : pathlib.Path
+        Directory to search for files
+    search_str : regex, optional
+        Regular expression for the search string and capture groups
+    return_last : bool, optional
+        if True, returns only the last (largest) entry. Default False
+
+    Returns
+    -------
+    ret : array
+        List of unique ids gleaned from filenames (TIDX)
+    """
+
+    # retrieves filenames and parses unique integers, returns an array of unique integers
+    filenames = Path(dirname).glob("*")
+
+    ret = [
+        int(re.findall(search_str, str(name))[0])
+        for name in filenames
+        if re.findall(search_str, str(name))
+    ]
+
+    if len(ret) == 0:
+        raise FileNotFoundError("get_unique_ids(): No files found")
+
+    ret.sort()
+
+    if return_last:
+        return ret[-1]
+    else:
+        return np.unique(ret)

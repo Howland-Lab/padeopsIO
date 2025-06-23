@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Union, Literal, Any
 
 from . import budgetkey, turbineArray
-from .utils.io_utils import structure_to_dict, key_search_r
+from .utils import io_utils as io
 from .utils.nml_utils import parser
 from .utils import tools
 from .gridslice import get_xids, GridDataset
@@ -64,6 +64,10 @@ class BudgetIO:
     @property
     def zLine(self):
         return self.x
+    
+    @property
+    def ta(self): 
+        return self.turbineArray
 
     def print(self, *args):
         """Prints statements if self.quiet is False"""
@@ -269,7 +273,6 @@ class BudgetIO:
                 self.warn("Turbine file not found, bypassing associating turbines.")
                 self.turbineArray = None
                 self.printv(e)
-            self.ta = self.turbineArray  # alias this for easier use
 
         # Throw an error if no RunID is found
         if "runid" not in self.__dict__:
@@ -288,7 +291,7 @@ class BudgetIO:
         # try to associate fields
         # self.field = {}
         try:
-            self.last_tidx = self.unique_tidx(
+            self.last_tidx = self.get_unique_ids(
                 return_last=True
             )  # last tidx in the run with fields
             self.associate_fields = True
@@ -418,18 +421,18 @@ class BudgetIO:
             self.Re = self.input_nml["physics"]["re"]
 
         if self.input_nml["physics"]["usecoriolis"]:
-            self.Ro = key_search_r(self.input_nml, "ro")
-            self.lat = key_search_r(self.input_nml, "latitude")
+            self.Ro = io.key_search_r(self.input_nml, "ro")
+            self.lat = io.key_search_r(self.input_nml, "latitude")
             self.Ro_f = self.Ro / (2 * np.cos(self.lat * np.pi / 180))
         else:
             self.Ro = np.inf
 
-        if key_search_r(self.input_nml, "isstratified"):
-            self.Fr = key_search_r(self.input_nml, "fr")
+        if io.key_search_r(self.input_nml, "isstratified"):
+            self.Fr = io.key_search_r(self.input_nml, "fr")
         else:
             self.Fr = np.inf
 
-        self.galpha = key_search_r(self.input_nml, "g_alpha")
+        self.galpha = io.key_search_r(self.input_nml, "g_alpha")
 
     def _load_grid(
         self, x=None, y=None, z=None, origin=(0, 0, 0), normalize_origin=None
@@ -447,7 +450,7 @@ class BudgetIO:
         if self.associate_padeops:
             # need to parse the inputfile to build the staggered grid
             gridkeys = ["nx", "ny", "nz", "lx", "ly", "lz"]
-            gridvars = {key: key_search_r(self.input_nml, key) for key in gridkeys}
+            gridvars = {key: io.key_search_r(self.input_nml, key) for key in gridkeys}
 
             x = np.arange(gridvars["nx"]) * gridvars["lx"] / gridvars["nx"]
             y = np.arange(gridvars["ny"]) * gridvars["ly"] / gridvars["ny"]
@@ -523,9 +526,9 @@ class BudgetIO:
 
         self.input_nml = ret["input_nml"].item()
         self.associate_nml = True
-
         if "turbineArray" in ret.files:
-            init_dict = ret["turbineArray"].item()
+            # Use utility function to handle cross-platform path deserialization
+            init_dict = io.deserialize_cross_platform_paths(ret, "turbineArray")
             init_ls = [t for t in init_dict["turbines"]]
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
@@ -622,12 +625,12 @@ class BudgetIO:
         except FileNotFoundError as e:
             raise e
 
-        self.input_nml = structure_to_dict(ret["input_nml"])
+        self.input_nml = io.structure_to_dict(ret["input_nml"])
         self.associate_nml = True
 
         if "turbineArray" in ret.keys():
-            init_dict = structure_to_dict(ret["turbineArray"])
-            init_ls = [structure_to_dict(t) for t in init_dict["turbines"]]
+            init_dict = io.structure_to_dict(ret["turbineArray"])
+            init_ls = [io.structure_to_dict(t) for t in init_dict["turbines"]]
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
 
@@ -649,7 +652,7 @@ class BudgetIO:
             )
 
         # link budgets
-        if not (self.dirname / self.fname_budgets.format(".mat")).exists():
+        if not (self.dirname / self.fname_budgets.format("mat")).exists():
             self.warn("No associated budget files found")
         else:
             self.associate_budgets = True
@@ -868,7 +871,7 @@ class BudgetIO:
                 tidx = self.last_tidx
 
         else:  # find closest tidx
-            tidx_all = self.unique_tidx()
+            tidx_all = self.get_unique_ids()
             if tidx not in tidx_all:
                 # find the nearest that actually exists
                 closest_tidx = tidx_all[np.argmin(np.abs(tidx_all - tidx))]
@@ -1445,48 +1448,63 @@ class BudgetIO:
         else:
             return xr.merge(to_merge).mean(axes)
 
-    def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
+    def get_unique_ids(self, search_str=None, return_last=False):
+        """
+        Pulls all the unique ids of the capture group in `search_str`
+        for all the files from `self.dirname` directory.
+
+        See `utils.io_utils.get_unique_ids()` for more information.
+
+        Parameters
+        ----------
+        search_str : regex, optional
+            Regular expression for the search string and capture groups
+        return_last : bool
+            If True, returns only the last (largest) value of TIDX. Default False.
+
+        Returns
+        -------
+        t_list : array
+            List of unique time IDs (TIDX)
+        """
+
+        if not self.associate_padeops:
+            return None  # TODO - is this lost information? is it useful information?
+
+        if search_str is None:
+            search_str = "Run{:02d}.*_t(\d+).*.out"  # default to searching through TIDX
+        runid = self.runid
+
+        # retrieves filenames and parses unique integers, returns an array of unique integers
+        return io.get_unique_ids(
+            self.dirname, 
+            search_str.format(self.runid), 
+            return_last=return_last
+        )
+
+    def unique_tidx(self, return_last=False): 
         """
         Pulls all the unique tidx values from a directory.
 
         Parameters
         ----------
         return_last : bool
-            If True, returns only the largest value of TIDX. Default False.
+            If True, returns only the last (largest) value of TIDX. Default False.
 
         Returns
         -------
         t_list : array
             List of unique time IDs (TIDX)
-        return_last : bool, optional
-            if True, returns only the last (largest) entry. Default False
-        search_str : regex, optional
-            Regular expression for the search string and capture groups
         """
-
+        
+        # TODO: fix for .npz
         if not self.associate_padeops:
-            return None  # TODO - is this lost information? is it useful information?
+            return None
 
-        # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = self.dirname.glob("*")
-        runid = self.runid
+        return self.get_unique_ids(
+            return_last=return_last, search_str="Run{:02d}.*_t(\d+).*.out", 
+        )
 
-        # searches for the formatting *_t(\d+)* in all filenames
-        t_list = [
-            int(re.findall(search_str.format(runid), str(name))[0])
-            for name in filenames
-            if re.findall(search_str.format(runid), str(name))
-        ]
-
-        if len(t_list) == 0:
-            raise FileNotFoundError("unique_tidx(): No files found")
-
-        t_list.sort()
-
-        if return_last:
-            return t_list[-1]
-        else:
-            return np.unique(t_list)
 
     def unique_budget_tidx(self, return_last=True):
         """
@@ -1502,15 +1520,13 @@ class BudgetIO:
         -------
         t_list : array
             List of unique budget time IDs (TIDX)
-        return_last : bool, optional
-            if True, reutnrs only the last (largest) entry. Default True
         """
 
         # TODO: fix for .npz
         if not self.associate_padeops:
             return None
 
-        return self.unique_tidx(
+        return self.get_unique_ids(
             return_last=return_last, search_str="Run{:02d}.*budget.*_t(\d+).*"
         )
 
@@ -1537,12 +1553,12 @@ class BudgetIO:
         times = []
 
         if return_last:  # save time by only reading the final TIDX
-            tidx = self.unique_tidx(return_last=return_last)
+            tidx = self.get_unique_ids(return_last=return_last)
             fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             return t
 
-        for tidx in self.unique_tidx():
+        for tidx in self.get_unique_ids():
             fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             times.append(t)
@@ -1581,12 +1597,13 @@ class BudgetIO:
 
         Returns
         -------
-        np.array
+        n_ids : array
+            list of n-values associated with budget files. 
         """
         if not self.associate_padeops:
             return None
 
-        return self.unique_tidx(
+        return self.get_unique_ids(
             return_last=return_last, search_str="Run{:02d}.*_n(\d+).*"
         )
 
@@ -1641,7 +1658,6 @@ class BudgetIO:
         Returns
         -------
         t_list (list) : list of tuples of budgets found
-
         """
 
         t_list = []
@@ -1663,7 +1679,7 @@ class BudgetIO:
             # loop through budgets
             for b in budget_list:
                 search_str = f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
-                terms = self.unique_tidx(search_str=search_str)
+                terms = self.get_unique_ids(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
             # convert tuples to keys
@@ -1704,7 +1720,7 @@ class BudgetIO:
         """
         Searches for unique slice time IDs.
         """
-        return self.unique_tidx(search_str=".*t(\d+)_.*.pl.*", return_last=return_last)
+        return self.get_unique_ids(search_str=".*t(\d+)_.*.pl.*", return_last=return_last)
 
     def _read_slice(self, direction, _id, field_terms, tidx_list=None):
         """
@@ -1854,7 +1870,7 @@ class BudgetIO:
             try:
                 tid = self.last_tidx
             except ValueError as e:  # TODO - Fix this!!
-                tid = self.unique_tidx(return_last=True)
+                tid = self.get_unique_ids(return_last=True)
 
         fname = self.dirname / fstr.format(self.runid, tid, turb)
         self.printv("\tReading", fname)
@@ -1901,7 +1917,7 @@ class BudgetIO:
         if tidx is None:
             tidx = [self.last_tidx]  # just try the last TIDX by default
         elif isinstance(tidx, str) and tidx == "all":
-            tidx = self.unique_tidx(search_str="Run{:02d}.*_t(\d+).*.pow")
+            tidx = self.get_unique_ids(search_str="Run{:02d}.*_t(\d+).*.pow")
 
         if not hasattr(tidx, "__iter__"):
             tidx = np.atleast_1d(tidx)
