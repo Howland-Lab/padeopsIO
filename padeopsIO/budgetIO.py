@@ -2094,9 +2094,8 @@ class BudgetIO:
         """Computes a mean time step dt for a simulation"""
         return tools.get_dt(self)
 
-
-if __name__ == "__main__":
-    """
-    TODO - add unit tests to class
-    """
-    print("padeopsIO: No unit tests included yet. ")
+    def __repr__(self): 
+        """
+        Returns a string representation of the BudgetIO object.
+        """
+        return (f"BudgetIO(dirname={str(self.dirname)}, runid={self.runid}, ")
