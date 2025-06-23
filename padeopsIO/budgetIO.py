@@ -616,7 +616,7 @@ class BudgetIO:
         """
 
         # load metadata: expects a file named <filename>_metadata.mat
-        filepath = self.dirname / self.fname_meta("mat")
+        filepath = self.dirname / self.fname_meta.format("mat")
         try:
             ret = loadmat(filepath)
         except FileNotFoundError as e:
@@ -2048,7 +2048,7 @@ class BudgetIO:
         """
         return tools.get_tidx_pairs(self, budget=budget)
 
-    def get_time_ax(self, return_tidx=False, missing_init_ok=True):
+    def get_time_ax(self, return_tidx=False, missing_init_ok=True, append_zero=True):
         """
         Interpolates a time axis between Time IDs
 
@@ -2060,6 +2060,8 @@ class BudgetIO:
         missing_init_ok : bool (optional)
             If True, then info files do not need to be written on initialization,
             uses a workaround to find the restarts. Default True.
+    append_zero : bool (optional)
+        If True, appends a zero to the time axis. Default True.
 
         Returns
         -------
@@ -2069,7 +2071,7 @@ class BudgetIO:
             if `return_tidx` is False
         """
         return tools.get_time_ax(
-            self, return_tidx=return_tidx, missing_init_ok=missing_init_ok
+            self, return_tidx=return_tidx, missing_init_ok=missing_init_ok, append_zero=append_zero
         )
 
     def get_dt(self):

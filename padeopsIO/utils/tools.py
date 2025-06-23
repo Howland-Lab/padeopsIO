@@ -159,7 +159,7 @@ def get_timekey(self, budget=False):
     return {int(tid): float(time) for tid, time in zip(tidx, times)}
 
 
-def get_time_ax(self, return_tidx=False, missing_init_ok=True):
+def get_time_ax(self, return_tidx=False, missing_init_ok=True, append_zero=True):
     """
     Interpolates a time axis between Time IDs
 
@@ -171,6 +171,8 @@ def get_time_ax(self, return_tidx=False, missing_init_ok=True):
     missing_init_ok : bool (optional)
         If True, then info files do not need to be written on initialization,
         uses a workaround to find the restarts. Default True.
+    append_zero : bool (optional)
+        If True, appends a zero to the time axis. Default True.
 
     Returns
     -------
@@ -181,6 +183,12 @@ def get_time_ax(self, return_tidx=False, missing_init_ok=True):
     """
     times = self.unique_times()
     tidx = self.unique_tidx()
+
+    if 0 not in tidx and append_zero:
+        # if the first time is not zero, then we need to add it
+        times = np.insert(times, 0, 0.0)
+        tidx = np.insert(tidx, 0, 0)
+        
     if missing_init_ok and io_utils.key_search_r(self.input_nml, "userestartfile"):
         first_tid = min(
             io_utils.key_search_r(self.input_nml, "restartfile_tid"), tidx[0]
