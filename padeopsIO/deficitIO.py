@@ -42,7 +42,7 @@ class DeficitIO(pio.BudgetIO):
         """
         if self.associate_padeops:
             # capturing *_budget(\d+)* in filenames
-            budget_list = self.unique_tidx(
+            budget_list = self.get_unique_ids(
                 search_str=rf"Run{self.runid:02d}.*_deficit_budget(\d+).*"
             )
 
@@ -106,14 +106,14 @@ class DeficitIO(pio.BudgetIO):
             # loop through budgets
             for b in budget_list:
                 search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
-                terms = self.unique_tidx(search_str=search_str)
+                terms = self.get_unique_ids(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
                 # reynolds stress budgets
                 if b == 4:
                     for component in budget4_comp_dict:
                         search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
-                        terms = self.unique_tidx(search_str=search_str)
+                        terms = self.get_unique_ids(search_str=search_str)
                         tup_list += [
                             ((b, term)) for term in terms
                         ]  # these are all tuples
@@ -230,7 +230,7 @@ class DeficitIO(pio.BudgetIO):
 
         # TODO: fix for .npz
 
-        return self.unique_tidx(
+        return self.get_unique_ids(
             return_last=return_last, search_str=r"Run{:02d}.*deficit_budget.*_t(\d+).*"
         )
 
