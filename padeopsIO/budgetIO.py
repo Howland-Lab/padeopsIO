@@ -304,11 +304,11 @@ class BudgetIO:
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
         except FileNotFoundError as e:
-            self.warn(f"_init_padeops(): {self.filename} no budget files found.")
+            if "budget_time_avg" in self.input_nml.keys() and self.input_nml['budget_time_avg']['do_budgets']: 
+                self.warn(f"_init_padeops(): {self.filename} no budget files found.")
 
-        if (
-            self.associate_fields
-        ):  # The following are initialized as the final saved instanteous field and budget:
+        if (self.associate_fields):
+            # The following are initialized as the final saved instanteous field and budget:
             self.field_tidx = self.last_tidx
 
         if self.associate_budgets:
@@ -1293,10 +1293,10 @@ class BudgetIO:
             self.printv(
                 "BudgetIO.slice(): Both budget_terms() and field_terms() were None."
             )
-            return None
+            return GridDataset(coords=self.budget.coords)
 
         if len(keys) == 0:
-            return None
+            return GridDataset(coords=self.budget.coords)
 
         return preslice.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys, **sel_kwargs)
 
