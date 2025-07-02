@@ -42,8 +42,8 @@ class DeficitIO(pio.BudgetIO):
         """
         if self.associate_padeops:
             # capturing *_budget(\d+)* in filenames
-            budget_list = self.unique_tidx(
-                search_str=f"Run{self.runid:02d}.*_deficit_budget(\d+).*"
+            budget_list = self.get_unique_ids(
+                search_str=rf"Run{self.runid:02d}.*_deficit_budget(\d+).*"
             )
 
         else:
@@ -105,15 +105,15 @@ class DeficitIO(pio.BudgetIO):
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
-                terms = self.unique_tidx(search_str=search_str)
+                search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_term(\d+).*"
+                terms = self.get_unique_ids(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
                 # reynolds stress budgets
                 if b == 4:
                     for component in budget4_comp_dict:
-                        search_str = f"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
-                        terms = self.unique_tidx(search_str=search_str)
+                        search_str = rf"Run{self.runid:02d}_deficit_budget{b:01d}_{component:01d}_term(\d+).*"
+                        terms = self.get_unique_ids(search_str=search_str)
                         tup_list += [
                             ((b, term)) for term in terms
                         ]  # these are all tuples
@@ -203,13 +203,13 @@ class DeficitIO(pio.BudgetIO):
                 )
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
+                re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx
 
             temp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
             self.budget[key] = temp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
+                (self.grid.nx, self.grid.ny, self.grid.nz), order="F"
             )  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
@@ -230,8 +230,8 @@ class DeficitIO(pio.BudgetIO):
 
         # TODO: fix for .npz
 
-        return self.unique_tidx(
-            return_last=return_last, search_str="Run{:02d}.*deficit_budget.*_t(\d+).*"
+        return self.get_unique_ids(
+            return_last=return_last, search_str=r"Run{:02d}.*deficit_budget.*_t(\d+).*"
         )
 
     # =============== TODO: MOVE BUDGET COMPUTATION TO SEPARATE FILE ===============
@@ -241,13 +241,13 @@ class DeficitIO(pio.BudgetIO):
         Calculates the velocity and reynolds stress gradients
         """
 
-        self.budget["ddxk_delta_uiuj"] = np.zeros([self.nx, self.ny, self.nz, 3, 3, 3])
+        self.budget["ddxk_delta_uiuj"] = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3, 3])
         self.budget["ddxk_delta_ui_base_uj"] = np.zeros(
-            [self.nx, self.ny, self.nz, 3, 3, 3]
+            [self.grid.nx, self.grid.ny, self.grid.nz, 3, 3, 3]
         )
 
-        tmp_delta_uiuj = np.zeros([self.nx, self.ny, self.nz, 3, 3])
-        tmp_delta_ui_base_uj = np.zeros([self.nx, self.ny, self.nz, 3, 3])
+        tmp_delta_uiuj = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3])
+        tmp_delta_ui_base_uj = np.zeros([self.grid.nx, self.grid.ny, self.grid.nz, 3, 3])
 
         tmp_delta_uiuj[:, :, :, 0, 0] = self.budget["delta_uu"]
         tmp_delta_uiuj[:, :, :, 0, 1] = self.budget["delta_uv"]

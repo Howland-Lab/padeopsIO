@@ -202,6 +202,7 @@ class TurbineArray:
         Converts self.__dict__ into a dictionary with no namelists.
         """
         ret = self.__dict__.copy()
+        ret['turb_dir'] = str(ret['turb_dir'])  # cast path to string... avoids problems with write_mat()
         if "turbines" in ret.keys():
             ret["turbines"] = [
                 t.input_nml for t in ret["turbines"]

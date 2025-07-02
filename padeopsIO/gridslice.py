@@ -100,7 +100,7 @@ class GridAccessor:
     def dx(self):
         return (
             float(self.x[1] - self.x[0])
-            if self.x is not None and self.x.ndim > 0 and self.x.size > 0
+            if self.x is not None and self.x.ndim > 0 and self.x.size > 1
             else 0
         )
 
@@ -108,7 +108,7 @@ class GridAccessor:
     def dy(self):
         return (
             float(self.y[1] - self.y[0])
-            if self.y is not None and self.y.ndim > 0 and self.y.size > 0
+            if self.y is not None and self.y.ndim > 0 and self.y.size > 1
             else 0
         )
 
@@ -116,7 +116,7 @@ class GridAccessor:
     def dz(self):
         return (
             float(self.z[1] - self.z[0])
-            if self.z is not None and self.z.ndim > 0 and self.z.size > 0
+            if self.z is not None and self.z.ndim > 0 and self.z.size > 1
             else 0
         )
 

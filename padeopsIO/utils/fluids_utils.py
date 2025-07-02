@@ -13,12 +13,15 @@ from ..gridslice import GridDataset
 
 
 # some helpful key pairings:
+uvw_keys = ["ubar", "vbar", "wbar"]
 rs_keys = [["uu", "uv", "uw"], ["uv", "vv", "vw"], ["uw", "vw", "ww"]]
+rs_keys_list = ["uu", "uv", "uw", "vv", "vw", "ww"]
 tau_keys = [
     ["tau11", "tau12", "tau13"],
     ["tau12", "tau22", "tau23"],
     ["tau13", "tau23", "tau33"],
 ]
+tau_keys_list = ["tau11", "tau12", "tau13", "tau22", "tau23", "tau33"]
 AD_keys = ["xAD", "yAD", "zAD"]
 
 
@@ -73,7 +76,7 @@ def compute_delta_field(
 ):
     """
     Computes deficit fields between primary and precursor simulations, e.g.:
-        \Delta u = u_primary - u_precursor
+        Delta u = u_primary - u_precursor
 
     This definition follows the double decomposition in Martinez-Tossas, et al. (2021).
 
@@ -120,6 +123,80 @@ def compute_delta_field(
     return field
 
 
+def compute_tke(ds):
+    """Computes TKE"""
+    return 0.5 * (ds["uu"] + ds["vv"] + ds["ww"])
+
+
+def assemble_Ui(ds, dim="i"): 
+    """
+    Assembles the velocity tensor U_i from an xr.Dataset.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['ubar', 'vbar', 'wbar']
+    dim : str, optional
+        Dimension to assemble along. Default is 'i'.
+
+    Returns
+    -------
+    U_i : xr.DataArray
+        Assembled velocity tensor with dimensions (x, y, z, i)
+    """
+    return math.assemble_xr_1d(ds, uvw_keys, dim=dim)
+
+
+def assemble_uiuj(ds, dim_i="i", dim_j="j"): 
+    """
+    Assemble the reynolds stress tensor
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['uu', 'uv', 'uw', 'vv', 'vw', 'ww']
+    dim_i, dim_j : str, optional
+    
+    Returns
+    -------
+    uiuj : xr.DataArray
+        Assembled reynolds stress tensor with dimensions (x, y, z, dim_i, dim_j)
+    """
+    return math.assemble_xr_nd(ds, rs_keys, dim=(dim_i, dim_j))
+
+
+def compute_dUidxj(ds, dim_i="i", dim_j="j"):
+    """
+    Computes the velocity gradient tensor d(Ui)/dxj.
+    """
+    U_i = assemble_Ui(ds, dim=dim_i)
+    dUidxj = math.xr_gradient(U_i, dim=["x", "y", "z"], concat_along=dim_j)
+    return dUidxj
+
+
+def compute_Sij(ds, dim_i="i", dim_j="j"):
+    """
+    Computes the symmetric part of the velocity gradient tensor S_ij = 0.5 * (dUidxj + dUjdxi).
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['ubar', 'vbar', 'wbar']
+    dim_i : str, optional
+        Dimension for i. Default is 'i'.
+    dim_j : str, optional
+        Dimension for j. Default is 'j'.
+
+    Returns
+    -------
+    Sij : xr.DataArray
+        Symmetric velocity gradient tensor with dimensions (x, y, z, i, j)
+    """
+    # compute the velocity gradient tensor
+    dUidxj = compute_dUidxj(ds, dim_i=dim_i, dim_j=dim_j)
+    return 0.5 * (dUidxj + dUidxj.rename(dict(i=dim_j, j=dim_i)))
+
+
 # ================ BUDGET COMPUTATIONS ================
 
 
@@ -147,7 +224,7 @@ def compute_RANS(
     direction : int
         Direction, either 0, 1, 2 (x, y, z, respectively)
     Ro : float
-        Rossby number, defined Ro = G/(\Omega L)
+        Rossby number, defined Ro = G/(Omega L)
     lat : float
         Latitude, in radians. Default None
     galpha : float, optional
@@ -165,6 +242,7 @@ def compute_RANS(
     dims = ds.grid.shape
     dxi = ds.grid.dxi
     i = direction
+    dpdxi_keys = ["dpdx", "dpdy", "dpdz"]
 
     # assemble tensors
     u_j = math.assemble_tensor_1d(ds, ["ubar", "vbar", "wbar"])
@@ -176,11 +254,14 @@ def compute_RANS(
     duidxj = math.gradient(u_j[..., i], dxi)
     duiujdxj = math.div(uu_ij, dxi)
     sgs_ij = math.div(tau_ij, dxi)
-    dpdxi = math.gradient(ds["pbar"], dxi, axis=i)
+    if dpdxi_keys[i] in ds.data_vars:
+        dpdxi = ds[dpdxi_keys[i]]
+    else:
+        dpdxi = -math.gradient(ds["pbar"], dxi, axis=i)
 
     ret = dict()
     ret["adv"] = -u_j * duidxj
-    ret["prss"] = -dpdxi
+    ret["prss"] = dpdxi
     ret["rs"] = -duiujdxj
     ret["sgs"] = -sgs_ij
     try:
@@ -466,7 +547,7 @@ def compute_vort_budget(
     return ret_ds
 
 
-def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=0):
+def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=("i", "j")):
     """
     Computes the mean kinetic energy budget.
 
@@ -481,8 +562,8 @@ def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=0):
         no buoyancy term is computed. Default None.
     theta0 : float, optional
         Reference potential temperature. Default 300.0
-    aggregate: int, optional
-        Aggregation level for the output. Default 0. (sum over all i, j)
+    aggregate: tuple, optional
+        Aggregation level for the output. Default ("i", "j") (sum over all i, j)
 
     Returns
     -------
@@ -492,6 +573,7 @@ def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=0):
         - prss: Pressure work term
         - buoy: Buoyancy term (if Fr is not None)
         - shear: Shear production term
+        - transport: Turbulent transport term
         - diss: Dissipation term
         - adm: Turbine forcing term
     """
@@ -507,31 +589,35 @@ def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=0):
     AD = xr.concat([xAD, yAD, zAD], dim="i")  # this is the actual forcing
     compute_AD = np.any(AD)  # compute ADM component - boolean
 
+    if all([key in ds.data_vars for key in ["dpdx", "dpdy", "dpdz"]]):
+        pgf = -math.assemble_xr_1d(ds, ["dpdx", "dpdy", "dpdz"], dim="i")
+    else:
+        pgf = math.xr_gradient(ds["pbar"], dim=("x", "y", "z"), concat_along="i")
+
     # Compute budget terms now:
-    mke = 0.5 * u_i.sum("i") ** 2
+    mke = 0.5 * (u_i ** 2).sum("i")
     ret = (
         GridDataset(coords=ds.coords)
         .expand_dims(i=(0, 1, 2), j=(0, 1, 2))
         .transpose("x", "y", "z", "i", "j")
     )
     ret["adv"] = -u_i * math.xr_gradient(mke, dim=("x", "y", "z"), concat_along="i")
-    ret["prss"] = -u_i * math.xr_gradient(
-        ds["pbar"], dim=("x", "y", "z"), concat_along="i"
-    )
+    ret["prss"] = -u_i * pgf
     if Fr is not None and theta0 is not None:
         ret["buoy"] = (
             u_i.sel(i=0)
             * math.xr_gradient(ds["Tbar"], dim=("x", "y", "z"), concat_along="i")
             / (theta0 * Fr**2)
         )
-    ret["shear"] = -u_i * math.xr_div(uiuj, dim="j", sum=False)
+    # ret["shear"] = -u_i * math.xr_div(uiuj, dim="j", sum=False)
+    ret["shear"] = uiuj * math.xr_gradient(u_i, dim=("x", "y", "z"), concat_along="j")
+    ret["transport"] = -math.xr_div(uiuj * u_i, dim="j", sum=False)
     ret["diss"] = -u_i * math.xr_div(tau_ij, dim="j", sum=False)
     if compute_AD:
         ret["adm"] = u_i * AD
 
     # aggregate down
-    axes_to_sum = ["i", "j"][aggregate:]
-    return ret.transpose(..., *axes_to_sum).sum(axes_to_sum)
+    return ret.transpose(..., *aggregate).sum(aggregate)
 
 
 def compute_residual(ds_budget, in_place=False):

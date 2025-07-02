@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Union, Literal, Any
 
 from . import budgetkey, turbineArray
-from .utils.io_utils import structure_to_dict, key_search_r
+from .utils import io_utils as io
 from .utils.nml_utils import parser
 from .utils import tools
 from .gridslice import get_xids, GridDataset
@@ -33,6 +33,41 @@ class BudgetIO:
     """
 
     key = budgetkey.get_key()
+
+    @property
+    def x(self):
+        return self.budget.coords.get(
+            "x", None
+        ).to_numpy()  # for now, return numpy array
+
+    @property
+    def y(self):
+        return self.budget.coords.get(
+            "y", None
+        ).to_numpy()  # for now, return numpy array
+
+    @property
+    def z(self):
+        return self.budget.coords.get(
+            "z", None
+        ).to_numpy()  # for now, return numpy array
+
+    # NOTE: these are deprecated, use x, y, z instead
+    @property
+    def xLine(self):
+        return self.x
+
+    @property
+    def yLine(self):
+        return self.x
+
+    @property
+    def zLine(self):
+        return self.x
+    
+    @property
+    def ta(self): 
+        return self.turbineArray
 
     def print(self, *args):
         """Prints statements if self.quiet is False"""
@@ -57,7 +92,7 @@ class BudgetIO:
         show_warnings: bool = True,
         filename: Union[str, None] = None,
         runid: Union[int, None] = None,
-        normalize_origin: Union[tuple[int], str, bool] = False,
+        normalize_origin: Union[tuple, str, bool] = False,
         src: Union[Literal["padeops", "npz", "npy", "mat"], None] = None,
         padeops: bool = False,
         npz: bool = False,
@@ -238,7 +273,6 @@ class BudgetIO:
                 self.warn("Turbine file not found, bypassing associating turbines.")
                 self.turbineArray = None
                 self.printv(e)
-            self.ta = self.turbineArray  # alias this for easier use
 
         # Throw an error if no RunID is found
         if "runid" not in self.__dict__:
@@ -257,7 +291,7 @@ class BudgetIO:
         # try to associate fields
         # self.field = {}
         try:
-            self.last_tidx = self.unique_tidx(
+            self.last_tidx = self.get_unique_ids(
                 return_last=True
             )  # last tidx in the run with fields
             self.associate_fields = True
@@ -270,11 +304,11 @@ class BudgetIO:
             self.all_budget_tidx = self.unique_budget_tidx(return_last=False)
             self.associate_budgets = True
         except FileNotFoundError as e:
-            self.warn(f"_init_padeops(): {self.filename} no budget files found.")
+            if "budget_time_avg" in self.input_nml.keys() and self.input_nml['budget_time_avg']['do_budgets']: 
+                self.warn(f"_init_padeops(): {self.filename} no budget files found.")
 
-        if (
-            self.associate_fields
-        ):  # The following are initialized as the final saved instanteous field and budget:
+        if (self.associate_fields):
+            # The following are initialized as the final saved instanteous field and budget:
             self.field_tidx = self.last_tidx
 
         if self.associate_budgets:
@@ -387,18 +421,18 @@ class BudgetIO:
             self.Re = self.input_nml["physics"]["re"]
 
         if self.input_nml["physics"]["usecoriolis"]:
-            self.Ro = key_search_r(self.input_nml, "ro")
-            self.lat = key_search_r(self.input_nml, "latitude")
+            self.Ro = io.key_search_r(self.input_nml, "ro")
+            self.lat = io.key_search_r(self.input_nml, "latitude")
             self.Ro_f = self.Ro / (2 * np.cos(self.lat * np.pi / 180))
         else:
             self.Ro = np.inf
 
-        if key_search_r(self.input_nml, "isstratified"):
-            self.Fr = key_search_r(self.input_nml, "fr")
+        if io.key_search_r(self.input_nml, "isstratified"):
+            self.Fr = io.key_search_r(self.input_nml, "fr")
         else:
             self.Fr = np.inf
 
-        self.galpha = key_search_r(self.input_nml, "g_alpha")
+        self.galpha = io.key_search_r(self.input_nml, "g_alpha")
 
     def _load_grid(
         self, x=None, y=None, z=None, origin=(0, 0, 0), normalize_origin=None
@@ -416,7 +450,7 @@ class BudgetIO:
         if self.associate_padeops:
             # need to parse the inputfile to build the staggered grid
             gridkeys = ["nx", "ny", "nz", "lx", "ly", "lz"]
-            gridvars = {key: key_search_r(self.input_nml, key) for key in gridkeys}
+            gridvars = {key: io.key_search_r(self.input_nml, key) for key in gridkeys}
 
             x = np.arange(gridvars["nx"]) * gridvars["lx"] / gridvars["nx"]
             y = np.arange(gridvars["ny"]) * gridvars["ly"] / gridvars["ny"]
@@ -426,17 +460,7 @@ class BudgetIO:
         # initialize grid variable
         self.field = GridDataset(x=x, y=y, z=z)
         self.budget = GridDataset(x=x, y=y, z=z)
-        self.grid = self.field.grid  # Grid3(x=x, y=y, z=z)
-        # copy grid keys into the namespace of `self`
-        for xi in ["x", "y", "z"]:
-            for key in ["{:s}", "L{:s}", "d{:s}", "n{:s}"]:
-                setattr(self, key.format(xi), getattr(self.grid, key.format(xi)))
-
-        self.xLine, self.yLine, self.zLine = (
-            self.x,
-            self.y,
-            self.z,
-        )  # try to phase out xLine, etc.
+        self.grid = self.field.grid
 
         self.origin = origin  # default origin location
         if normalize_origin:  # not None or False
@@ -502,9 +526,9 @@ class BudgetIO:
 
         self.input_nml = ret["input_nml"].item()
         self.associate_nml = True
-
         if "turbineArray" in ret.files:
-            init_dict = ret["turbineArray"].item()
+            # Use utility function to handle cross-platform path deserialization
+            init_dict = io.deserialize_cross_platform_paths(ret, "turbineArray")
             init_ls = [t for t in init_dict["turbines"]]
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
@@ -595,18 +619,18 @@ class BudgetIO:
         """
 
         # load metadata: expects a file named <filename>_metadata.mat
-        filepath = self.dirname / self.fname_meta("mat")
+        filepath = self.dirname / self.fname_meta.format("mat")
         try:
             ret = loadmat(filepath)
         except FileNotFoundError as e:
             raise e
 
-        self.input_nml = structure_to_dict(ret["input_nml"])
+        self.input_nml = io.structure_to_dict(ret["input_nml"])
         self.associate_nml = True
 
         if "turbineArray" in ret.keys():
-            init_dict = structure_to_dict(ret["turbineArray"])
-            init_ls = [structure_to_dict(t) for t in init_dict["turbines"]]
+            init_dict = io.structure_to_dict(ret["turbineArray"])
+            init_ls = [io.structure_to_dict(t) for t in init_dict["turbines"]]
             self.turbineArray = turbineArray.TurbineArray(init_ls=init_ls)
             self.associate_turbines = True
 
@@ -628,7 +652,7 @@ class BudgetIO:
             )
 
         # link budgets
-        if not (self.dirname / self.fname_budgets.format(".mat")).exists():
+        if not (self.dirname / self.fname_budgets.format("mat")).exists():
             self.warn("No associated budget files found")
         else:
             self.associate_budgets = True
@@ -680,7 +704,7 @@ class BudgetIO:
         write_dir = write_dir or self.dirname
 
         if budget_terms == "current":
-            key_subset = self.budget.keys()  # currently loaded budgets
+            key_subset = self.budget.data_vars  # currently loaded budgets
 
         else:
             # need to parse budget_terms with the key
@@ -689,6 +713,8 @@ class BudgetIO:
         # load budgets (TODO: add fields)
         if xy_avg:
             sl = self.xy_avg(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
+            sl['x'] = np.nan
+            sl['y'] = np.nan  # hotfix
         else:
             sl = self.slice(budget_terms=key_subset, xlim=xlim, ylim=ylim, zlim=zlim)
 
@@ -845,7 +871,7 @@ class BudgetIO:
                 tidx = self.last_tidx
 
         else:  # find closest tidx
-            tidx_all = self.unique_tidx()
+            tidx_all = self.get_unique_ids()
             if tidx not in tidx_all:
                 # find the nearest that actually exists
                 closest_tidx = tidx_all[np.argmin(np.abs(tidx_all - tidx))]
@@ -868,7 +894,7 @@ class BudgetIO:
             )
             tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1)
             self.field[term] = tmp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
+                self.grid.nxi, order="F"
             )  # reshape into a 3D array
 
         self.print(
@@ -894,7 +920,7 @@ class BudgetIO:
             self.printv("clear_budgets(): no budgets to clear. ")
             return
 
-        loaded_keys = self.budget.keys()
+        loaded_keys = self.budget.data_vars
         self.budget = GridDataset(coords=self.budget.coords)
         self.budget_n = None
         self.budget_tidx = None  # reset to final TIDX
@@ -951,19 +977,19 @@ class BudgetIO:
             # clear budgets -- we are explicitly overwriting budgets
             self.clear_budgets()
 
-        elif self.budget.keys() is not None:
+        elif len(self.budget) > 0:
             # budgets are already loaded, check which ones
             if (self.budget_tidx == tidx) or (tidx is None):
                 # remove items that have already been loaded in -- this omits overwriting these terms
                 key_subset = {
                     key: key_subset[key]
                     for key in key_subset
-                    if key not in self.budget.keys()
+                    if key not in self.budget.data_vars
                 }
 
                 if self.verbose:  # print which keys were removed
                     remove_keys = [
-                        key for key in key_subset if key in self.budget.keys()
+                        key for key in key_subset if key in self.budget.data_vars
                     ]
                     if len(remove_keys) > 0:
                         self.print(
@@ -1033,13 +1059,13 @@ class BudgetIO:
                 raise FileNotFoundError(f"No files found at {searchstr}")
 
             self.budget_n = int(
-                re.findall(".*_t\d+_n(\d+)", str(u_fname))[0]
+                re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx  # update self.budget_tidx
 
             tmp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
             self.budget[key] = tmp.reshape(
-                (self.nx, self.ny, self.nz), order="F"
+                self.grid.nxi, order="F"
             )  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
@@ -1071,7 +1097,7 @@ class BudgetIO:
 
         self.printv(
             "BudgetIO loaded the following budgets from .mat: ",
-            list(key_subset.keys()),
+            list(key_subset),
         )
 
     def _parse_budget_terms(self, budget_terms):
@@ -1101,7 +1127,7 @@ class BudgetIO:
             return dict()
 
         elif budget_terms == "current":
-            budget_terms = list(self.budget.keys())
+            budget_terms = list(self.budget.data_vars)
 
         elif budget_terms == "all":
             budget_terms = self.existing_terms()
@@ -1129,6 +1155,10 @@ class BudgetIO:
 
         # parse through terms: they are either 1) valid, 2) missing (but valid keys), or 3) invalid (not in BudgetIO.key)
         existing_keys = self.existing_terms()
+        if not self.associate_padeops: 
+            # just return all the keys in `existing_keys` in dictionary form to match padeops
+            return {key: None for key in budget_terms if key in existing_keys}
+
         # corresponding associated tuples (#, #)
         existing_tup = [self.key[key] for key in existing_keys]
 
@@ -1254,7 +1284,7 @@ class BudgetIO:
             budget_terms = (
                 [budget_terms] if isinstance(budget_terms, str) else budget_terms
             )
-            keys = [term for term in budget_terms if term in self.budget.keys()]
+            keys = [term for term in budget_terms if term in self.budget.data_vars]
 
         elif field is not None:
             raise NotImplementedError("Deprecated v0.2.0")
@@ -1263,10 +1293,10 @@ class BudgetIO:
             self.printv(
                 "BudgetIO.slice(): Both budget_terms() and field_terms() were None."
             )
-            return None
+            return GridDataset(coords=self.budget.coords)
 
         if len(keys) == 0:
-            return None
+            return GridDataset(coords=self.budget.coords)
 
         return preslice.slice(xlim=xlim, ylim=ylim, zlim=zlim, keys=keys, **sel_kwargs)
 
@@ -1418,48 +1448,63 @@ class BudgetIO:
         else:
             return xr.merge(to_merge).mean(axes)
 
-    def unique_tidx(self, return_last=False, search_str="Run{:02d}.*_t(\d+).*.out"):
+    def get_unique_ids(self, search_str=None, return_last=False):
+        """
+        Pulls all the unique ids of the capture group in `search_str`
+        for all the files from `self.dirname` directory.
+
+        See `utils.io_utils.get_unique_ids()` for more information.
+
+        Parameters
+        ----------
+        search_str : regex, optional
+            Regular expression for the search string and capture groups
+        return_last : bool
+            If True, returns only the last (largest) value of TIDX. Default False.
+
+        Returns
+        -------
+        t_list : array
+            List of unique time IDs (TIDX)
+        """
+
+        if not self.associate_padeops:
+            return None  # TODO - is this lost information? is it useful information?
+
+        if search_str is None:
+            search_str = r"Run{:02d}.*_t(\d+).*.out"  # default to searching through TIDX
+        runid = self.runid
+
+        # retrieves filenames and parses unique integers, returns an array of unique integers
+        return io.get_unique_ids(
+            self.dirname, 
+            search_str.format(self.runid), 
+            return_last=return_last
+        )
+
+    def unique_tidx(self, return_last=False): 
         """
         Pulls all the unique tidx values from a directory.
 
         Parameters
         ----------
         return_last : bool
-            If True, returns only the largest value of TIDX. Default False.
+            If True, returns only the last (largest) value of TIDX. Default False.
 
         Returns
         -------
         t_list : array
             List of unique time IDs (TIDX)
-        return_last : bool, optional
-            if True, returns only the last (largest) entry. Default False
-        search_str : regex, optional
-            Regular expression for the search string and capture groups
         """
-
+        
+        # TODO: fix for .npz
         if not self.associate_padeops:
-            return None  # TODO - is this lost information? is it useful information?
+            return None
 
-        # retrieves filenames and parses unique integers, returns an array of unique integers
-        filenames = self.dirname.glob("*")
-        runid = self.runid
+        return self.get_unique_ids(
+            return_last=return_last, search_str=r"Run{:02d}.*_t(\d+).*.out", 
+        )
 
-        # searches for the formatting *_t(\d+)* in all filenames
-        t_list = [
-            int(re.findall(search_str.format(runid), str(name))[0])
-            for name in filenames
-            if re.findall(search_str.format(runid), str(name))
-        ]
-
-        if len(t_list) == 0:
-            raise FileNotFoundError("unique_tidx(): No files found")
-
-        t_list.sort()
-
-        if return_last:
-            return t_list[-1]
-        else:
-            return np.unique(t_list)
 
     def unique_budget_tidx(self, return_last=True):
         """
@@ -1475,16 +1520,14 @@ class BudgetIO:
         -------
         t_list : array
             List of unique budget time IDs (TIDX)
-        return_last : bool, optional
-            if True, reutnrs only the last (largest) entry. Default True
         """
 
         # TODO: fix for .npz
         if not self.associate_padeops:
             return None
 
-        return self.unique_tidx(
-            return_last=return_last, search_str="Run{:02d}.*budget.*_t(\d+).*"
+        return self.get_unique_ids(
+            return_last=return_last, search_str=r"Run{:02d}.*budget.*_t(\d+).*"
         )
 
     def unique_times(self, return_last=False):
@@ -1510,12 +1553,12 @@ class BudgetIO:
         times = []
 
         if return_last:  # save time by only reading the final TIDX
-            tidx = self.unique_tidx(return_last=return_last)
+            tidx = self.get_unique_ids(return_last=return_last)
             fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             return t
 
-        for tidx in self.unique_tidx():
+        for tidx in self.get_unique_ids():
             fname = self.dirname / f"Run{self.runid:02d}_info_t{tidx:06d}.out"
             t = np.genfromtxt(fname, dtype=None)[0]
             times.append(t)
@@ -1529,7 +1572,7 @@ class BudgetIO:
             tidx = self.unique_budget_tidx(return_last=False)
 
         filenames = self.dirname.glob("*")
-        search_str = "Run{:02d}.*budget.*_t{:06d}_n(\d+).*"
+        search_str = r"Run{:02d}.*budget.*_t{:06d}_n(\d+).*"
 
         # the following is not efficient, but sufficient for now
         n_list = []
@@ -1554,13 +1597,14 @@ class BudgetIO:
 
         Returns
         -------
-        np.array
+        n_ids : array
+            list of n-values associated with budget files. 
         """
         if not self.associate_padeops:
             return None
 
-        return self.unique_tidx(
-            return_last=return_last, search_str="Run{:02d}.*_n(\d+).*"
+        return self.get_unique_ids(
+            return_last=return_last, search_str=r"Run{:02d}.*_n(\d+).*"
         )
 
     def existing_budgets(self):
@@ -1573,9 +1617,9 @@ class BudgetIO:
             runid = self.runid
             # capturing *_budget(\d+)* in filenames
             budget_list = [
-                int(re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))[0])
+                int(re.findall(r"Run{:02d}.*_budget(\d+).*".format(runid), str(name))[0])
                 for name in filenames
-                if re.findall("Run{:02d}.*_budget(\d+).*".format(runid), str(name))
+                if re.findall(r"Run{:02d}.*_budget(\d+).*".format(runid), str(name))
             ]
         else:
             if self.associate_npz:
@@ -1589,7 +1633,7 @@ class BudgetIO:
                     key for key in ret if key[0] != "_"
                 ]  # ignore `__header__`, etc.
 
-            budget_list = [BudgetIO.key[t][0] for t in t_list]
+            budget_list = [BudgetIO.key[t][0] for t in t_list if t in BudgetIO.key]
 
         if len(budget_list) == 0:
             self.warn("existing_budgets(): No associated budget files found. ")
@@ -1614,7 +1658,6 @@ class BudgetIO:
         Returns
         -------
         t_list (list) : list of tuples of budgets found
-
         """
 
         t_list = []
@@ -1635,8 +1678,8 @@ class BudgetIO:
             tup_list = []
             # loop through budgets
             for b in budget_list:
-                search_str = f"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
-                terms = self.unique_tidx(search_str=search_str)
+                search_str = rf"Run{self.runid:02d}_budget{b:01d}_term(\d+).*"
+                terms = self.get_unique_ids(search_str=search_str)
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
             # convert tuples to keys
@@ -1673,7 +1716,76 @@ class BudgetIO:
 
         return t_list
 
-    def Read_x_slice(self, xid, field_terms=["u"], tidx_list=[]):
+    def unique_slice_tidx(self, return_last=False):
+        """
+        Searches for unique slice time IDs.
+        """
+        return self.get_unique_ids(search_str=r".*t(\d+)_.*.pl.*", return_last=return_last)
+
+    def _read_slice(self, direction, _id, field_terms, tidx_list=None):
+        """
+        Helper function to read 2D slice data from PadeOps.
+
+        Arguments
+        ---------
+        direction : str
+            Direction ("x", "y", or "z")
+        _id : int
+            Index of the slice. NOTE: Fortran indexing starts at 1, not 0.
+        field_terms : list
+            List of terms to read in.
+        tidx_list : list, optional
+            List of time IDs. If None, calls self.unique_time_slice() to get
+            the last TIDX. Default None.
+
+        Returns
+        -------
+        GridDataset
+            xarray of the slice data
+        """
+
+        if isinstance(field_terms, str):
+            field_terms = [field_terms]
+
+        if tidx_list is None:
+            tidx_list = self.unique_slice_tidx(return_last=True)
+
+        if not hasattr(tidx_list, "__iter__"):
+            tidx_list = [tidx_list]
+
+        # return an xarray Dataset
+        ret = (
+            GridDataset(coords=self.budget.coords)
+            .isel({direction: _id - 1})
+            .expand_dims({"tidx": tidx_list})
+        )
+
+        # loop through terms, for each term assemble an array
+        for term in field_terms:
+            arr = np.zeros((len(tidx_list),) + tuple(ret.grid.nxi))
+
+            # loop through TIDX and load:
+            for k, tidx in enumerate(tidx_list):
+                fname = (
+                    self.dirname
+                    / f"Run{self.runid:02d}_t{tidx:06d}_{direction:s}{_id:05d}.pl{term:s}"
+                )
+
+                tmp = np.fromfile(fname, dtype=np.dtype(np.float64), count=-1).reshape(
+                    ret.grid.nxi, order="F"
+                )
+                arr[k] = tmp
+            ret[term] = (
+                [
+                    "tidx",
+                ]
+                + ret.grid.keys(),
+                arr,
+            )
+
+        return ret
+
+    def read_x_slice(self, xid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1681,7 +1793,7 @@ class BudgetIO:
         ---------
         xid : int
             integer of xid dumped by initialize.F90. NOTE: Fortran indexing starts at 1.
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1689,43 +1801,11 @@ class BudgetIO:
 
         Returns
         -------
-        sl : dict
-            formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
+        return self._read_slice("x", xid, field_terms, tidx_list)
 
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'x':s}{xid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.ny, self.nz), order="F")
-
-        sl["x"] = self.xLine[[xid - 1]]
-        sl["y"] = self.yLine
-        sl["z"] = self.zLine
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext
-
-        return sl
-
-    def Read_y_slice(self, yid, field_terms=["u"], tidx_list=[]):
+    def read_y_slice(self, yid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1733,7 +1813,7 @@ class BudgetIO:
         ---------
         yid : int
             integer of yid dumped by initialize.F90
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1741,42 +1821,11 @@ class BudgetIO:
 
         Returns
         -------
-        sl (dict) : formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
+        return self._read_slice("y", yid, field_terms, tidx_list)
 
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'y':s}{yid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.nx, self.nz), order="F")
-
-        sl["x"] = self.xLine
-        sl["y"] = self.yLine[[yid - 1]]
-        sl["z"] = self.zLine
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext  # TODO: make into Slice() object
-
-        return sl
-
-    def Read_z_slice(self, zid, field_terms=["u"], tidx_list=[]):
+    def read_z_slice(self, zid, field_terms=["u"], tidx_list=[]):
         """
         Reads slices of dumped quantities at a time ID or time IDs.
 
@@ -1784,7 +1833,7 @@ class BudgetIO:
         ---------
         zid : int
             integer of zid dumped by initialize.F90
-        label_list : list
+        field_terms : list
             list of terms to read in.
             Available is typically: "u", "v", "w", and "P" (case-sensitive)
         tidx_list : list
@@ -1792,40 +1841,9 @@ class BudgetIO:
 
         Returns
         -------
-        sl (dict) : formatted dictionary similar to BudgetIO.slice()
+        GridDataset
         """
-
-        sl = {}
-        if type(field_terms) == str:
-            field_terms = [field_terms]
-
-        for tidx in tidx_list:
-            for lab in field_terms:
-                fname = (
-                    self.dirname
-                    / f"Run{self.runid:02d}_t{tidx:06d}_{'z':s}{zid:05d}.pl{lab:s}"
-                )
-
-                key_name = "{:s}_{:d}".format(lab, tidx)
-                sl[key_name] = np.fromfile(
-                    fname, dtype=np.dtype(np.float64), count=-1
-                ).reshape((self.nx, self.ny), order="F")
-
-        sl["x"] = self.xLine
-        sl["y"] = self.yLine
-        sl["z"] = self.zLine[[zid - 1]]
-
-        # build and save the extents, either in 1D, 2D, or 3D
-        ext = []
-        for term in ["x", "y", "z"]:
-            if (
-                len(sl[term]) > 1
-            ):  # if this is actually a slice (not a number), then add it to the extents
-                ext += [np.min(sl[term]), np.max(sl[term])]
-
-        sl["extent"] = ext
-
-        return sl
+        return self._read_slice("z", zid, field_terms, tidx_list)
 
     def _read_turb_file(self, prop, tid=None, turb=1):
         """
@@ -1852,7 +1870,7 @@ class BudgetIO:
             try:
                 tid = self.last_tidx
             except ValueError as e:  # TODO - Fix this!!
-                tid = self.unique_tidx(return_last=True)
+                tid = self.get_unique_ids(return_last=True)
 
         fname = self.dirname / fstr.format(self.runid, tid, turb)
         self.printv("\tReading", fname)
@@ -1899,7 +1917,7 @@ class BudgetIO:
         if tidx is None:
             tidx = [self.last_tidx]  # just try the last TIDX by default
         elif isinstance(tidx, str) and tidx == "all":
-            tidx = self.unique_tidx(search_str="Run{:02d}.*_t(\d+).*.pow")
+            tidx = self.get_unique_ids(search_str=r"Run{:02d}.*_t(\d+).*.pow")
 
         if not hasattr(tidx, "__iter__"):
             tidx = np.atleast_1d(tidx)
@@ -2046,7 +2064,7 @@ class BudgetIO:
         """
         return tools.get_tidx_pairs(self, budget=budget)
 
-    def get_time_ax(self, return_tidx=False, missing_init_ok=True):
+    def get_time_ax(self, return_tidx=False, missing_init_ok=True, append_zero=True):
         """
         Interpolates a time axis between Time IDs
 
@@ -2058,6 +2076,8 @@ class BudgetIO:
         missing_init_ok : bool (optional)
             If True, then info files do not need to be written on initialization,
             uses a workaround to find the restarts. Default True.
+    append_zero : bool (optional)
+        If True, appends a zero to the time axis. Default True.
 
         Returns
         -------
@@ -2067,16 +2087,15 @@ class BudgetIO:
             if `return_tidx` is False
         """
         return tools.get_time_ax(
-            self, return_tidx=return_tidx, missing_init_ok=missing_init_ok
+            self, return_tidx=return_tidx, missing_init_ok=missing_init_ok, append_zero=append_zero
         )
 
     def get_dt(self):
         """Computes a mean time step dt for a simulation"""
         return tools.get_dt(self)
 
-
-if __name__ == "__main__":
-    """
-    TODO - add unit tests to class
-    """
-    print("padeopsIO: No unit tests included yet. ")
+    def __repr__(self): 
+        """
+        Returns a string representation of the BudgetIO object.
+        """
+        return (f"BudgetIO(dirname={str(self.dirname.resolve())}, runid={self.runid})")

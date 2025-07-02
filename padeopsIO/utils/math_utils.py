@@ -281,30 +281,39 @@ def xr_gradient(data, dim, concat_along="i", raise_errors=True):
     ----------
     data : xarray.DataArray
         Input data.
-    dim : tuple
+    dim : str or list/tuple of str
         Dimensions along which to compute the gradient.
+    concat_along : str
+        Name of the new dimension to concatenate along (only used if dim is a list).
+    raise_errors : bool
+        Whether to raise errors on differentiation failure (default True).
 
     Returns
     -------
     gradient : xarray.DataArray
         Gradient of the input data.
     """
-    gradient = []
     if isinstance(dim, str):
-        dim = (dim,)
+        # Simple 1D gradient: return directly
+        return data.differentiate(dim)
 
+    # Multi-dimensional gradient
+    grads = []
     for _dim in dim:
         try:
-            grad_dim = data.differentiate(_dim)
+            g = data.differentiate(_dim)
         except ValueError as e:
             if raise_errors:
                 raise e
             else:
-                grad_dim = xr.zeros_like(data)
-        gradient.append(grad_dim)
-    return xr.concat(
-        gradient, dim=concat_along
-    )  # Stack gradients along a new dimension
+                g = xr.zeros_like(data)
+        grads.append(g)
+
+    # Assign integer coordinate labels for the new dimension
+    gradient = xr.concat(grads, dim=concat_along)
+    gradient = gradient.assign_coords({concat_along: list(range(len(dim)))})
+
+    return gradient  # Stack gradients along a new dimension
 
 
 def xr_d2x(ds, dim):
