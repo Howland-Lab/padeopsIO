@@ -123,6 +123,80 @@ def compute_delta_field(
     return field
 
 
+def compute_tke(ds):
+    """Computes TKE"""
+    return 0.5 * (ds["uu"] + ds["vv"] + ds["ww"])
+
+
+def assemble_Ui(ds, dim="i"): 
+    """
+    Assembles the velocity tensor U_i from an xr.Dataset.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['ubar', 'vbar', 'wbar']
+    dim : str, optional
+        Dimension to assemble along. Default is 'i'.
+
+    Returns
+    -------
+    U_i : xr.DataArray
+        Assembled velocity tensor with dimensions (x, y, z, i)
+    """
+    return math.assemble_xr_1d(ds, uvw_keys, dim=dim)
+
+
+def assemble_uiuj(ds, dim_i="i", dim_j="j"): 
+    """
+    Assemble the reynolds stress tensor
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['uu', 'uv', 'uw', 'vv', 'vw', 'ww']
+    dim_i, dim_j : str, optional
+    
+    Returns
+    -------
+    uiuj : xr.DataArray
+        Assembled reynolds stress tensor with dimensions (x, y, z, dim_i, dim_j)
+    """
+    return math.assemble_xr_nd(ds, rs_keys, dim=(dim_i, dim_j))
+
+
+def compute_dUidxj(ds, dim_i="i", dim_j="j"):
+    """
+    Computes the velocity gradient tensor d(Ui)/dxj.
+    """
+    U_i = assemble_Ui(ds, dim=dim_i)
+    dUidxj = math.xr_gradient(U_i, dim=["x", "y", "z"], concat_along=dim_j)
+    return dUidxj
+
+
+def compute_Sij(ds, dim_i="i", dim_j="j"):
+    """
+    Computes the symmetric part of the velocity gradient tensor S_ij = 0.5 * (dUidxj + dUjdxi).
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Budget object with keys ['ubar', 'vbar', 'wbar']
+    dim_i : str, optional
+        Dimension for i. Default is 'i'.
+    dim_j : str, optional
+        Dimension for j. Default is 'j'.
+
+    Returns
+    -------
+    Sij : xr.DataArray
+        Symmetric velocity gradient tensor with dimensions (x, y, z, i, j)
+    """
+    # compute the velocity gradient tensor
+    dUidxj = compute_dUidxj(ds, dim_i=dim_i, dim_j=dim_j)
+    return 0.5 * (dUidxj + dUidxj.rename(dict(i=dim_j, j=dim_i)))
+
+
 # ================ BUDGET COMPUTATIONS ================
 
 
