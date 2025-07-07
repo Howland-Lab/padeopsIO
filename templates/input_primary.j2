@@ -96,11 +96,16 @@ useControl                    = .FALSE.     ! Use PI control to fix yaw angle at
 /
 /
 &FRINGE
-Fringe_xst                    = {{ "%0.4f"|format(fringe_xst|float) }}d0         
-Fringe_xen                    = {{ "%0.4f"|format(fringe_xen|float) }}d0
-Fringe_delta_st_x             = 0.1d0
-Fringe_delta_en_x             = 0.05d0
-LambdaFact                    = {{ "%0.4f"|format(lambdafact|float) }}d0 
+Fringe_xst                    = {{ "%0.4f"|format(fringe_xst|float) }}d0     ! x-fringe start location, fraction of Lx domain
+Fringe_xen                    = {{ "%0.4f"|format(fringe_xen|float) }}d0     ! x-fringe end location, fraction of Lx
+Fringe_delta_st_x             = 0.1d0                                        ! x-fringe starting ramp width, fraction of Lx
+Fringe_delta_en_x             = 0.05d0                                       ! x-fringe ending ramp width, fraction of Lx
+LambdaFact                    = {{ "%0.4f"|format(lambdafact|float) }}d0     ! e-folding factor of the fringe strength (recommended: 0.1-1)
+apply_y_fringe                = .false.               ! turn on for y-fringe region (if false, the variables below are unused)
+Fringe_yst           = 0.85d0                         ! Same but fractions of Ly rather than Lx
+Fringe_yen           = 0.95d0
+Fringe_delta_st_y    = 0.05d0
+Fringe_delta_en_y    = 0.05d0
 /
 /
 &SGS_MODEL
@@ -117,10 +122,10 @@ explicitCalcEdgeEddyViscosity = .false.     ! Explicitly calculate or interpolat
 /
 /
 &WINDTURBINES
-useWindTurbines               = .true.      ! Do you want to use Wind turbines ?
+useWindTurbines               = .true.      ! Do you want to use wind turbines?
 num_turbines                  = 1           ! How many turbines?
 ADM                           = .TRUE.      ! Are these actuator disks?
-ADM_Type                      = 5 
+ADM_Type                      = 5           ! 1: Untested, 2: Calaf et al. (2010), 4: Dynamic yaw, Howland et al. (2020), 5: Shapiro et al. (2019)
 turbInfoDir                   = "{{ turbine_dir }}" ! Where are the turbine info files located?
 /
 /

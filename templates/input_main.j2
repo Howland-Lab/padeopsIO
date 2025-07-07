@@ -1,6 +1,7 @@
 &CONCURRENT
 primary_inputfile   	= "{{ dirname }}/input_primary.dat"
 precursor_inputfile 	= "{{ dirname }}/input_precursor.dat"
-synchronize_RK_fringe 	= .true.
-do_deficit_budgets      = .false.
+synchronize_RK_fringe 	= .true.            ! synchronize RK4 sub-steps, default True
+do_deficit_budgets      = .false.           ! compute deficit budgets? (NOTE: not compatible with tile_precursor)
+tile_precursor          = .false.           ! if true, attempts integer tiling of precursor simulation in fringe targets
 /
