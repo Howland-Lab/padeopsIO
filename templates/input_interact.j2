@@ -1,12 +1,12 @@
 &concurrent
-HIT_InputFile                 = "{{ dirname }}/input_hit.dat"
-AD_InputFile                  = "{{ dirname }}/input_ad.dat"
-k_bandpass_left               = {{ "%.4f"|format(k_bandpass_left|float)}}d0
-k_bandpass_right              = {{ "%.4f"|format(k_bandpass_right|float)}}d0
-TI_target                     = {{ "%.4f"|format(TI|float)}}d0
-TI_fact                       = {{ "%.4f"|format(TI_fact|float)}}d0
-TI_xloc                       = {{ "%.4f"|format(TI_xloc|float)}}d0
-freeze_HIT                    = .{{ freeze_hit }}.  ! Freezes HIT fringe targets
+HIT_InputFile                 = "{{ dirname }}/input_hit.dat"                   ! Inputfile path for HIT simulation
+AD_InputFile                  = "{{ dirname }}/input_ad.dat"                    ! Inputfile path for AD (primary) simulation
+k_bandpass_left               = {{ "%.4f"|format(k_bandpass_left|float)}}d0     ! bandpass filter HIT lower
+k_bandpass_right              = {{ "%.4f"|format(k_bandpass_right|float)}}d0    ! bandpass filter HIT upper
+TI_target                     = {{ "%.4f"|format(TI|float)}}d0                  ! Target turbulence intensity sqrt(2/3k)/InflowSpeed. Set to -1 to disable
+TI_fact                       = {{ "%.4f"|format(TI_fact|float)}}d0             ! x-location to compute TI for the TI controller and TI_target
+TI_xloc                       = {{ "%.4f"|format(TI_xloc|float)}}d0             ! Amplifier for HIT fluctuations. Set to > 0 to enable manually
+freeze_HIT                    = .{{ freeze_hit }}.                              ! Freeze HIT targets? (e.g. for Mann turbulence)
 /
 /
 &FILTER_INFO
