@@ -123,7 +123,7 @@ explicitCalcEdgeEddyViscosity = .false.     ! Explicitly calculate or interpolat
 /
 &WINDTURBINES
 useWindTurbines               = .true.      ! Do you want to use wind turbines?
-num_turbines                  = 1           ! How many turbines?
+num_turbines                  = 72           ! How many turbines?
 ADM                           = .TRUE.      ! Are these actuator disks?
 ADM_Type                      = 5           ! 1: Untested, 2: Calaf et al. (2010), 4: Dynamic yaw, Howland et al. (2020), 5: Shapiro et al. (2019)
 turbInfoDir                   = "{{ turbine_dir }}" ! Where are the turbine info files located?
@@ -150,8 +150,8 @@ angleTrigger                  =  0.1d0       ! Angle at z_ref where control turn
 Lx                            =  {{ "%0.4f"|format(Lx|float) }}d0    ! Domain Length (appropriate dimesnions/non-dimensionalized)
 Ly                            =  {{ "%0.4f"|format(Ly|float) }}d0     ! Domain Width  (appropriate dimesnions/non-dimensionalized)
 Lz                            =  {{ "%0.4f"|format(Lz|float) }}d0     ! Domain Height (appropriate dimesnions/non-dimensionalized)
-Tref                          =  300.d0      ! Reference Temp.
-Tsurf0                        =  300.0d0     ! Surface Temp. (at tsim=0) in K (need to take care of the dimensions)
+Tref                          =  288.d0      ! Reference Temp.
+Tsurf0                        =  288.0d0     ! Surface Temp. (at tsim=0) in K (need to take care of the dimensions)
 dTsurf_dt                     =  0.0D0       ! Surface Temp. decrease rate in K/hr. (need to take care of the dimensions)
 z0init                        =  {{ "%0.6e"|format(z0|float) }}      ! Roughness scale used to initialize the profile
 frameAngle                    =  {{ "%0.4f"|format(frameangle|float) }}d0    ! Frame angle set to be the same as above, used for initialization
