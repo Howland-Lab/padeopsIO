@@ -21,7 +21,7 @@ import itertools
 import re
 import warnings
 
-BASE = Path(__file__).parent.parent
+BASE = Path(__file__).parent
 TEMPLATE_NEUTRAL = BASE / "templates" / "input_spinup.j2"
 TEMPLATE_UPSAMPLE = BASE / "templates" / "input_upsample.j2"
 TEMPLATE_ROTATE = BASE / "templates" / "input_rotate.j2"
