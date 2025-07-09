@@ -26,6 +26,7 @@ TEMPLATE_NEUTRAL = BASE / "templates" / "input_spinup.j2"
 TEMPLATE_UPSAMPLE = BASE / "templates" / "input_upsample.j2"
 TEMPLATE_ROTATE = BASE / "templates" / "input_rotate.j2"
 TEMPLATE_CONCURRENT = BASE / "templates" / "input_main.j2"
+TEMPLATE_CONCURRENT_TILED = BASE / "templates" / "input_main_tiled.j2"
 TEMPLATE_PRIMARY = BASE / "templates" / "input_primary.j2"
 TEMPLATE_PRECURSOR = BASE / "templates" / "input_precursor.j2"
 TEMPLATE_LAMINAR = BASE / "templates" / "input_laminar.j2"
@@ -644,6 +645,58 @@ def write_concurrent(
 
         # render output
         out = template.render(inputs)
+        with open(OUTPUT / f"input_{name}.dat", "w") as f:
+            f.write(out)
+
+        if not quiet:
+            print(f"\tDone writing {name} files")
+
+    # make submit.sh file
+    with open(OUTPUT / "submit_concurrent.sh", "w") as f:
+        f.write(
+            sbatch_write_file(
+                inputs,
+                "input_main.dat",
+                problem_name="neutral_pbl_concurrent",
+                n_hrs=n_hrs,
+            )
+        )
+    
+def write_concurrent_tiled(
+    inputs,
+    inputs_precursor, 
+    dst=None,
+    quiet=False,
+    n_hrs=24,
+):
+    """
+    Write concurrent files. 
+
+    Expects tile_x and tile_y as keys in `inputs`. In this version, 
+    the precursor domain is left untiled and only the primary domain is 
+    tiled up to full size. Fringe targets are tiled where needed. 
+    """
+
+    # make output directory
+    OUTPUT = safe_mkdir(inputs, quiet=quiet, dst=dst)
+    # finish populating restart_tid, frame_angle fields
+    tid, frameangle = find_last_restart(inputs, return_frameangle=True)
+    inputs.update(frameangle=frameangle, restart_tid=tid)
+
+    tid, frameangle = find_last_restart(inputs_precursor, return_frameangle=True)
+    inputs_precursor.update(frameangle=frameangle, restart_tid=tid)
+
+    for _template, name, _inputs in zip(
+        [TEMPLATE_PRIMARY, TEMPLATE_PRECURSOR, TEMPLATE_CONCURRENT_TILED],
+        ["primary", "precursor", "main"],
+        [inputs, inputs_precursor, inputs]
+    ):
+        # load spinup template and write template:
+        with open(_template, "r") as f:
+            template = jinja2.Template(f.read(), undefined=jinja2.StrictUndefined)
+
+        # render output
+        out = template.render(_inputs)
         with open(OUTPUT / f"input_{name}.dat", "w") as f:
             f.write(out)
 
