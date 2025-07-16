@@ -58,7 +58,7 @@ class Budget(GridDataset):
                 key_search_r(src.input_nml, "isstratified") or False
             )
             self.attrs["theta0"] = key_search_r(src.input_nml, "tref")
-            self.attrs["galpha"] = key_search_r(src.input_nml, "galpha")
+            self.attrs["galpha"] = key_search_r(src.input_nml, "g_alpha")
             self.full_arrays = src.budget  # keep "Full" BudgetIO domain size
 
         elif isinstance(src, Budget):
