@@ -370,6 +370,7 @@ def deficit_budget(
     ret["sgs"] = -sgs_ij
     ret["rsfull"] = -duiujdxj_full
     ret["rsbkgd"] = duiujdxj_bkgd
+    ret["wakeadv"] = -deltau_j * dUidxj
 
     try:
         ret["adm"] = ds_full[AD_keys[i]]
@@ -382,7 +383,6 @@ def deficit_budget(
         )
     else:
         raise NotImplementedError("TODO: Deficit budgets full Coriolis")
-    ret["wakeadv"] = -deltau_j * dUidxj
 
     # hotfix - cast to xarray
     ret_ds = GridDataset(coords=ds_full.coords).expand_dims(j=(0, 1, 2))

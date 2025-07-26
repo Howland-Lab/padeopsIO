@@ -11,6 +11,7 @@ from abc import ABC
 from .utils import math_utils as math
 from .utils import fluids_utils as fluids
 from .gridslice import GridDataset
+from .budgetIO import BudgetIO
 
 
 # =============== NewBudget interface ================
@@ -433,6 +434,7 @@ class BudgetDeficit(NewBudget):
         Ro=None,
         Fr=None,
         lat=None,
+        avg_xy_pre=True,
     ):
         """
         Initialize non-dimensional RANS-deficit budget terms.
@@ -449,13 +451,19 @@ class BudgetDeficit(NewBudget):
             Froude number, defined U/sqrt{g L}
         lat : float
             Latitude, in degrees
+        avg_xy_pre : bool, optional
+            Average the background budget in the xy-plane before computing deficits. Default True
         """
         super().__init__(budget, base_agg)
+        # ensure the background budget has the same coordinates
+        if not bkgd_budget.coords.equals(budget.coords):
+            bkgd_budget.set_xlim(xlim=budget.x, ylim=budget.y, zlim=budget.z)
         self.attrs["bkgd"] = bkgd_budget
         self.attrs["Ro"] = Ro
         self.attrs["Fr"] = Fr
         self.attrs["lat"] = lat * np.pi / 180
         self.attrs["direction"] = None  # overwrite this in sub-classes
+        self.attrs["avg_xy_pre"] = avg_xy_pre
 
     def _compute_budget(self):
         """
@@ -467,6 +475,7 @@ class BudgetDeficit(NewBudget):
             self.direction,
             Ro=self.Ro,
             lat=self.lat,
+            avg_xy=self.avg_xy_pre,
         )
         fluids.compute_residual(self.base_terms, in_place=True)
 
@@ -483,14 +492,9 @@ class BudgetDeficit(NewBudget):
 
         if "rs" in kwargs.keys():
             self.aggregate(level, rsfull=kwargs["rs"], rsbkgd=kwargs["rs"], **kwargs)
-            if kwargs["rs"] <= 0:
-                # combine advection with reynolds stresses
-                self["rs"] = self["rsfull"] + self["rsbkgd"]
-                del self["rsfull"], self["rsbkgd"]
-            elif kwargs["rs"] == 1:
-                for k in range(1, 4):
-                    self[f"rs_{k}"] = self[f"rsfull_{k}"] + self[f"rsbkgd_{k}"]
-                    del self[f"rsfull_{k}"], self[f"rsbkgd_{k}"]
+            # combine background and full reynolds stresses
+            self["rs"] = self["rsfull"] + self["rsbkgd"]
+            del self["rsfull"], self["rsbkgd"]
         else:
             self.aggregate(level, **kwargs)
 
