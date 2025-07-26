@@ -423,7 +423,7 @@ class BudgetIO:
         if self.input_nml["physics"]["usecoriolis"]:
             self.Ro = io.key_search_r(self.input_nml, "ro")
             self.lat = io.key_search_r(self.input_nml, "latitude")
-            self.Ro_f = self.Ro / (2 * np.cos(self.lat * np.pi / 180))
+            self.Ro_f = self.Ro / (2 * np.sin(self.lat * np.pi / 180))
         else:
             self.Ro = np.inf
 

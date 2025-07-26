@@ -192,6 +192,7 @@ class Budget(GridDataset):
         Ro=None,
         Fr=None,
         lat=None,
+        avg_xy_pre=True,
     ):
         Ro = Ro or self.Ro
         Fr = Fr or self.Fr
@@ -203,10 +204,11 @@ class Budget(GridDataset):
             Ro=Ro,
             Fr=Fr,
             lat=lat,
+            avg_xy_pre=avg_xy_pre,
         )
         return self.deficit_x
 
-    def init_deficit_y(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None):
+    def init_deficit_y(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None, avg_xy_pre=True):
         Ro = Ro or self.Ro
         Fr = Fr or self.Fr
         lat = lat or self.lat
@@ -217,10 +219,11 @@ class Budget(GridDataset):
             Ro=Ro,
             Fr=Fr,
             lat=lat,
+            avg_xy_pre=avg_xy_pre,
         )
         return self.deficit_y
 
-    def init_deficit_z(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None):
+    def init_deficit_z(self, bkgd_budget, base_agg=0, Ro=None, Fr=None, lat=None, avg_xy_pre=True):
         raise NotImplementedError("z-deficit budget not implemented yet.")
         # Ro = Ro or self.Ro
         # Fr = Fr or self.Fr
