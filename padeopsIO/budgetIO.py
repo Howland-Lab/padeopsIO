@@ -69,6 +69,18 @@ class BudgetIO:
     def ta(self): 
         return self.turbineArray
 
+    @property
+    def xdim(self): 
+        return self.xd
+
+    @property
+    def udim(self): 
+        return self.ud
+
+    @property
+    def tdim(self): 
+        return self.td
+
     def print(self, *args):
         """Prints statements if self.quiet is False"""
         if not self.quiet:
@@ -317,6 +329,24 @@ class BudgetIO:
                 return_last=True
             )  # but may be changed by the user
             self.budget_n = self.last_n
+
+        # evaluate xdim, udim, and tdim
+        g = 9.81
+        omega = 0.0000729
+        try:
+            Ro = self.input_nml['physics']['ro']
+        except:
+            raise ValueError("Ro (Rossby number) not found in the &PHYSICS namelist")
+        try:
+            Fr = self.input_nml['physics']['fr']
+        except:
+            raise ValueError("Fr (Froude number) not found in the &PHYSICS namelist")      
+
+        xd = g * (Fr / Ro / omega)**2
+        ud = g * Fr**2 / omega / Ro
+        self.xd = xd
+        self.ud = ud
+        self.td = xd/max(abs(ud),0.0001)
 
     def _read_inputfile(self, runid=None, strict_runid=False):
         """
