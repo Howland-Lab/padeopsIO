@@ -30,7 +30,7 @@ def copy_padeops_data(
     copy_final_restarts=False,
     copy_fields=True,
     copy_logfiles=True,
-    copy_infofiles=False,
+    copy_infofiles=True,
     overwrite=False,
     quiet=False,
 ):
@@ -75,6 +75,7 @@ def copy_padeops_data(
         case_dir = Path(case_dir)
     else:
         case_dir = Path(case.dirname)
+
 
     # set export directory
     if export_dir is None:

@@ -9,18 +9,18 @@ try:
 except ImportError:
     from distutils.core import setup
 
-readme = ''
+readme = ""
 
 setup(
     long_description=readme,
-    name='padeopsIO',
-    version='0.1.0',
-    description='Input/output module for reading, saving, and plotting output data',
-    python_requires='>=3.7',
-    author='Kirby',
-    author_email='kirby.heck@gmail.com',
-    license='MIT',
-    packages=['padeopsIO'],
+    name="padeopsIO",
+    version="0.1.0",
+    description="Input/output module for reading, saving, and plotting output data",
+    python_requires=">=3.7",
+    author="Kirby",
+    author_email="kirby.heck@gmail.com",
+    license="MIT",
+    packages=["padeopsIO"],
     package_dir={"": "."},
     package_data={},
     install_requires=[],

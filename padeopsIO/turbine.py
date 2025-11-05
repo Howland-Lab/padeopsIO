@@ -129,7 +129,7 @@ class Turbine:
                 "Turbine.set_sort(): given variable does not exist for the turbine object"
             )
 
-    def get_correction(self, return_correction=False):
+    def get_correction(self, return_correction=True):
         """
         Computes the correction factor M as defined by Taylor expansion of Shapiro, et al. (2019)
 

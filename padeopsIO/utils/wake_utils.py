@@ -118,6 +118,254 @@ def usq_mean(case, diam=1, xlim=None):
         return ubar_sq
 
 
+def rans_budgets(
+    run,
+    xlim=None,
+    ylim=None,
+    zlim=None,
+    sl=None,
+    compute_x=True,
+    compute_y=True,
+    compute_z=False,
+    combine_terms=False,
+    compute_residual=True,
+    useconstantg=True,
+):
+    """
+    Compute RANS budgets from output data with mean fields only.
+
+    Sign convention: advection terms are "moved" to the right-hand side such that they include a negative sign.
+    Pressure gradients already include a negative sign, and density is assumed to be unity.
+
+    Parameters
+    ----------
+    run (BudgetIO object)
+    sl (slice from BudgetIO.slice()) : optional, can be used in place of giving a run and x, y, z limits  (run still required)
+    xlim, ylim, zlim : array-like, see BudgetIO.slice()
+    compute_x, compute_y, compute_z (bool) : dictates which RANS budgets to compute. Default: x, y True, z False
+    combine_terms (bool) : combines advection terms and turbulence terms. Default: False
+    compute_residual (bool) : computes the residual pointwise. Default: True
+    useconstantg (bool) : uses constant geostrophic forcing given in the `physics` namelist if True.
+        If not, calls _get_inflow()
+
+    Returns
+    -------
+    sl (dict) : slice from run.slice()
+    rans_x (dict) : dictionary with the following keys -
+        ['ududx', 'vdudy', 'wdudz', 'dpdx', 'xCor', 'duudx', 'duvdy', 'duwdz']
+    rans_y (dict) : dictionary with the following keys -
+        ['udvdx', 'vdvdy', 'wdvdz', 'dpdy', 'yCor', 'dvudx', 'dvvdy', 'dvwdz']
+    rans_z (dict) : dictionary with the following keys -
+        ['udwdx', 'vdwdy', 'wdwdz', 'dpdz', 'zCor', 'dwudx', 'dwvdy', 'dwwdz']
+
+    # TODO : Clean up this function :)
+
+    """
+
+    if sl is None:
+        terms = [
+            "ubar",
+            "vbar",
+            "wbar",
+            "pbar",
+            "uu",
+            "uv",
+            "uw",
+            "vv",
+            "vw",
+            "ww",
+            "dpdx",
+            "dpdy",
+            "dpdz",
+        ]
+        sl = run.slice(
+            budget_terms=terms, xlim=xlim, ylim=ylim, zlim=zlim, round_extent=False
+        )
+    else:
+        zlim = [sl["z"][0], sl["z"][-1]]
+
+    # constants:
+    Ro = run.Ro
+    lat = run.input_nml["physics"]["latitude"]
+    C1 = 2 / Ro * np.sin(lat * np.pi / 180)
+    #     Gx = 1
+    # need to retrieve and trim the inflow profiles:
+    if useconstantg:
+        Gx, Gy = [1, 0]  # TODO: GENERALIZE
+    else:
+        Gx, Gy = run._get_inflow()
+        zids = run.get_xids(z=zlim, return_slice=True)
+        Gx = Gx[zids]
+        Gy = Gy[zids]
+
+    ret = (sl,)
+
+    # x-terms:
+    if compute_x:
+        rans_x = {}
+        x_adv_terms = ["ududx", "vdudy", "wdudz"]
+        x_turb_terms = ["duudx", "duvdy", "duwdz"]
+
+        rans_x["ududx"] = -(sl["ubar"] * partialx(sl["ubar"], run.dx))
+        rans_x["vdudy"] = -(sl["vbar"] * partialy(sl["ubar"], run.dy))
+        rans_x["wdudz"] = -(sl["wbar"] * partialz(sl["ubar"], run.dz))
+        rans_x["dpdx"] = sl["dpdx"]  # -partialx(sl['pbar'], run.dx)
+        rans_x["xCor"] = -C1 * (Gy - sl["vbar"])
+        rans_x["duudx"] = -partialx(sl["uu"], run.dx)
+        rans_x["duvdy"] = -partialy(sl["uv"], run.dy)
+        rans_x["duwdz"] = -partialz(sl["uw"], run.dz)
+
+        if compute_residual:
+            rans_x["residual"] = sum(rans_x[key] for key in rans_x.keys())
+
+        if combine_terms:
+            rans_xcomb = {
+                key: rans_x[key]
+                for key in rans_x.keys()
+                if key not in (x_adv_terms + x_turb_terms)
+            }
+            rans_xcomb["advection"] = sum(rans_x[key] for key in x_adv_terms)
+            rans_xcomb["turbulence"] = sum(rans_x[key] for key in x_turb_terms)
+
+            ret += (rans_xcomb,)
+        else:
+            ret += (rans_x,)
+
+    # y-terms:
+    if compute_y:
+        rans_y = {}
+        y_adv_terms = ["udvdx", "vdvdy", "wdvdz"]
+        y_turb_terms = ["dvudx", "dvvdy", "dvwdz"]
+
+        rans_y["udvdx"] = -(sl["ubar"] * partialx(sl["vbar"], run.dx))
+        rans_y["vdvdy"] = -(sl["vbar"] * partialy(sl["vbar"], run.dy))
+        rans_y["wdvdz"] = -(sl["wbar"] * partialz(sl["vbar"], run.dz))
+        rans_y["dpdy"] = sl["dpdy"]  # -partialy(sl['pbar'], run.dy)
+        rans_y["yCor"] = C1 * (Gx - sl["ubar"])
+        rans_y["dvudx"] = -partialx(sl["uv"], run.dx)
+        rans_y["dvvdy"] = -partialy(sl["vv"], run.dy)
+        rans_y["dvwdz"] = -partialz(sl["vw"], run.dz)
+
+        if compute_residual:
+            rans_y["residual"] = sum(rans_y[key] for key in rans_y.keys())
+
+        if combine_terms:
+            rans_ycomb = {
+                key: rans_y[key]
+                for key in rans_y.keys()
+                if key not in (y_adv_terms + y_turb_terms)
+            }
+            rans_ycomb["advection"] = sum(rans_y[key] for key in y_adv_terms)
+            rans_ycomb["turbulence"] = sum(rans_y[key] for key in y_turb_terms)
+
+            ret += (rans_ycomb,)
+        else:
+            ret += (rans_y,)
+
+    # z-terms:
+    if compute_z:
+        rans_z = {}
+        z_adv_terms = ["udwdx", "vdwdy", "wdwdz"]
+        z_turb_terms = ["dwudx", "dwvdy", "dwwdz"]
+
+        rans_z["udwdx"] = -(sl["ubar"] * partialx(sl["wbar"], run.dx))
+        rans_z["vdwdy"] = -(sl["vbar"] * partialy(sl["wbar"], run.dy))
+        rans_z["wdwdz"] = -(sl["wbar"] * partialz(sl["wbar"], run.dz))
+        rans_z["dpdz"] = -partialz(sl["pbar"], run.dz)
+        rans_z["zCor"] = np.zeros(sl["ubar"].shape)
+        rans_z["dwudx"] = -partialx(sl["uw"], run.dx)
+        rans_z["dwvdy"] = -partialy(sl["vw"], run.dy)
+        rans_z["dwwdz"] = -partialz(sl["ww"], run.dz)
+
+        if compute_residual:
+            rans_z["residual"] = sum(rans_z[key] for key in rans_z.keys())
+
+        if combine_terms:
+            rans_zcomb = {
+                key: rans_z[key]
+                for key in rans_z.keys()
+                if key not in (z_adv_terms + z_turb_terms)
+            }
+            rans_zcomb["advection"] = sum(rans_z[key] for key in z_adv_terms)
+            rans_zcomb["turbulence"] = sum(rans_z[key] for key in z_turb_terms)
+
+            ret += (rans_zcomb,)
+        else:
+            ret += (rans_z,)
+
+    if len(ret) == 1:
+        print(
+            "Nothing computed! Check compute_x and compute_y keyword arguments. Returning slice only"
+        )
+        return ret[0]
+    else:
+        return ret
+
+
+def get_xids(
+    x=None,
+    y=None,
+    z=None,
+    x_ax=None,
+    y_ax=None,
+    z_ax=None,
+    return_none=False,
+    return_slice=False,
+):
+    """
+    Translates x, y, and z limits in the physical domain to indices based on self.xLine, self.yLine, and self.zLine
+
+    Parameters
+    ---------
+    x, y, z : float or iterable (tuple, list, etc.)
+        Physical locations to return the nearest index
+    return_none : bool
+        If True, populates output tuple with None if input is None. Default False.
+    return_slice : bool
+        If True, returns a tuple of slices instead a tuple of lists. Default False.
+
+    Returns
+    -------
+    xid, yid, zid : list or tuple of lists
+        Indices for the requested x, y, z, args in the order: x, y, z.
+        If, for example, y and z are requested, then the returned tuple will have (yid, zid) lists.
+        If only one value (float or int) is passed in for e.g. x, then an integer will be passed back in xid.
+    """
+
+    ret = ()
+
+    # iterate through x, y, z, index matching for each term
+    for s, s_ax in zip([x, y, z], [x_ax, y_ax, z_ax]):
+        if s is not None:
+            if s_ax is None:
+                raise AttributeError("Axis keyword not provided")
+
+            if hasattr(s, "__iter__"):
+                xids = [np.argmin(np.abs(s_ax - xval)) for xval in s]
+            else:
+                xids = np.argmin(np.abs(s_ax - s))
+
+            xids = np.squeeze(np.unique(xids))
+
+            if return_slice and xids.ndim > 0:  # append slices to the return tuple
+                ret = ret + (slice(np.min(xids), np.max(xids) + 1),)
+
+            else:  # append index list to the return tuple
+                ret = ret + (xids,)
+
+        elif return_none:  # fill with None or slice(None)
+            if return_slice:
+                ret = ret + (slice(None),)
+
+            else:
+                ret = ret + (None,)
+
+    if len(ret) == 1:
+        return ret[0]  # don't return a length one tuple
+    else:
+        return ret
+
+
 # ================= NUMERICS =================
 
 

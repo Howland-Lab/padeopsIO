@@ -37,13 +37,22 @@ class GridDataset(xr.Dataset):
 
     def __setitem__(self, key, value):
         if isinstance(value, np.ndarray):
-            if value.ndim != len(self.dims):
+            if not (np.allclose(value.shape, self.grid.nxi)):
                 raise ValueError(
                     "Number of dimensions of the array does not match the dataset."
                 )
+
+            # first, try to set this to physical coordinates x, y, z
+            try:
+                super().__setitem__(key, (self.grid.keys(), value))
+                return
+            except ValueError as e:
+                pass  # do nothing, for now
+
             # Assign the variable using existing dimensions
             super().__setitem__(key, (list(self.dims), value))
         else:
+            # TODO: Dimension checking?
             super().__setitem__(key, value)
 
 
@@ -91,7 +100,7 @@ class GridAccessor:
     def dx(self):
         return (
             float(self.x[1] - self.x[0])
-            if self.x is not None and self.x.ndim > 0 and self.x.size > 0
+            if self.x is not None and self.x.ndim > 0 and self.x.size > 1
             else 0
         )
 
@@ -99,7 +108,7 @@ class GridAccessor:
     def dy(self):
         return (
             float(self.y[1] - self.y[0])
-            if self.y is not None and self.y.ndim > 0 and self.y.size > 0
+            if self.y is not None and self.y.ndim > 0 and self.y.size > 1
             else 0
         )
 
@@ -107,7 +116,7 @@ class GridAccessor:
     def dz(self):
         return (
             float(self.z[1] - self.z[0])
-            if self.z is not None and self.z.ndim > 0 and self.z.size > 0
+            if self.z is not None and self.z.ndim > 0 and self.z.size > 1
             else 0
         )
 
@@ -177,7 +186,7 @@ class GridAccessor:
             for coord in [self.x, self.y, self.z]
             if coord is not None and (coord.ndim > 0 or not drop_singleton)
         ]
-        return np.meshgrid(*coords)
+        return np.meshgrid(*coords, indexing="ij")
 
     def to_dict(self):
         return {
@@ -213,10 +222,14 @@ class Slicer:
 
     def __call__(self, xlim=None, ylim=None, zlim=None, keys=None, **extra_kwargs):
         """Returns a slice of the original array"""
+        x = self._obj.grid.x.to_numpy() if "x" in self._obj.coords else None
+        y = self._obj.grid.y.to_numpy() if "y" in self._obj.coords else None
+        z = self._obj.grid.z.to_numpy() if "z" in self._obj.coords else None
+
         xids, yids, zids = get_xids(
-            x=self._obj.grid.x.to_numpy(),
-            y=self._obj.grid.y.to_numpy(),
-            z=self._obj.grid.z.to_numpy(),
+            x=x,
+            y=y,
+            z=z,
             xlim=xlim,
             ylim=ylim,
             zlim=zlim,
@@ -232,9 +245,10 @@ class Slicer:
 
         if isinstance(self._obj, xr.DataArray):
             return self._obj.isel(**valid_indexers).sel(**extra_kwargs)
-        else:
-            keys = keys or self._obj.keys()
+        elif keys:
             return self._obj.isel(**valid_indexers)[keys].sel(**extra_kwargs)
+        else:
+            return self._obj.isel(**valid_indexers).sel(**extra_kwargs)
 
 
 @xr.register_dataset_accessor("imshow")
@@ -245,7 +259,7 @@ class XRImshow:
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
 
-    def __call__(self, ax=None, cbar=True, **kwargs):
+    def __call__(self, ax=None, cbar=True, figsize=None, **kwargs):
         if isinstance(self._obj, xr.Dataset):
             if len(self._obj.keys()) > 1:
                 raise ValueError("Cannot plot type `Dataset` with more than 1 key")
@@ -257,7 +271,7 @@ class XRImshow:
                 raise AttributeError("imshow() requires 2D data")
 
             if ax is None:
-                _, ax = plt.subplots()
+                _, ax = plt.subplots(figsize=figsize)
 
             im = ax.imshow(
                 self._obj.T, extent=self._obj.grid.extent, origin="lower", **kwargs
@@ -321,6 +335,7 @@ def get_xids(
                 raise AttributeError("Axis keyword not provided")
 
             if hasattr(s, "__iter__"):
+                s = np.atleast_1d(s)  # fixes 0-D ndarry issues.
                 xids = [np.argmin(np.abs(s_ax - xval)) for xval in s]
             else:
                 xids = np.argmin(np.abs(s_ax - s))

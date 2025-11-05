@@ -72,7 +72,6 @@ def get_key():
         "wT": (0, 29),
         "TT": (0, 30),
         "wb": (0, 31),
-        "wb": (0, 31),
         # BUDGET 1 TERMS: (momentum)
         "DuDt": (1, 1),  # x-advection
         "dpdx": (1, 2),  # x-pressure gradient
@@ -91,25 +90,26 @@ def get_key():
         "yAD": (1, 15),
         "zBuoy": (1, 16),  # z buoyancy term
         # BUDGET 2 TERMS: (MKE)  TODO - improve the naming keys
-        "MKE_TKE_loss": (2, 1),
+        "MKE_shear": (2, 1),
         "MKE_adv": (2, 2),
-        "MKE_tau_transport": (2, 3),
+        "MKE_rs_transport": (2, 3),
         "MKE_p_transport": (2, 4),
-        "MKE_SGS_transport": (2, 5),
+        "MKE_sgs_transport": (2, 5),
         "MKE_dissipation": (2, 6),
         "MKE_AD": (2, 7),
         "MKE_geostrophic": (2, 8),
         "MKE_coriolis": (2, 9),
+        "MKE_buoyancy": (2, 10),
         # BUDGET 3 TERMS: (TKE)
         "TKE_shear_production": (3, 1),
-        "TKE_turb_transport": (3, 2),
-        "TKE_p_strain": (3, 3),
+        "TKE_adv": (3, 2),
+        "TKE_turb_transport": (3, 3),
         "TKE_p_transport": (3, 4),
-        "TKE_SGS_transport": (3, 5),
+        "TKE_sgs_transport": (3, 5),
         "TKE_dissipation": (3, 6),
-        "TKE_buoyancy": (3, 7),
-        "TKE_coriolis": (3, 8),
-        "TKE_AD": (3, 9),
+        "TKE_AD": (3, 7),
+        "TKE_buoyancy": (3, 8),
+        "TKE_storage": (3, 9),
         # BUDGET 4 TERMS: TODO
         # BUDGET 5 TERMS: Wake deficit
         "uwake": (5, 1),
@@ -144,7 +144,7 @@ def key_labels(u="U", l="D"):
         "vv": "$\\overline{v'v'}/U^2$",
         "vw": "$\\overline{v'w'}/U^2$",
         "ww": "$\\overline{w'w'}/U^2$",
-        "pbar": "$\\bar{p}/(\\frac{1}{2}U^2)$",
+        "pbar": "$\\bar{p}/U^2$",
         "tau11": "$\\tau_{11}$",
         "tau12": "$\\tau_{12}$",
         "tau13": "$\\tau_{13}$",
