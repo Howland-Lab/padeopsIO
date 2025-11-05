@@ -965,6 +965,7 @@ class BudgetIO:
         overwrite=False,
         tidx=None,
         time=None,
+        phase = None,
     ):
         """
         Accompanying method to write_budgets. Reads budgets saved as .npz files
@@ -1034,7 +1035,7 @@ class BudgetIO:
                 self.clear_budgets()
 
         if self.associate_padeops:
-            self._read_budgets_padeops(key_subset, tidx=tidx)
+            self._read_budgets_padeops(key_subset, tidx=tidx, phase = phase)
         elif self.associate_npz:
             self._read_budgets_npz(key_subset)
         elif self.associate_mat:
@@ -1258,6 +1259,7 @@ class BudgetIO:
         ylim=None,
         zlim=None,
         overwrite=False,
+        phase = None,
         **sel_kwargs,
     ):
         """
@@ -1311,7 +1313,7 @@ class BudgetIO:
         elif budget_terms is not None:
             # read budgets
             self.read_budgets(
-                budget_terms=budget_terms, tidx=tidx, time=time, overwrite=overwrite
+                budget_terms=budget_terms, tidx=tidx, time=time, overwrite=overwrite, phase = phase,
             )
             preslice = self.budget
             budget_terms = (
