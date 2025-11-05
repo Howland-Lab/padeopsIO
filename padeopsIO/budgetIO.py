@@ -1050,7 +1050,7 @@ class BudgetIO:
         """
         Uses a method similar to ReadVelocities_Budget() in PadeOpsViz to read and store full-field budget terms.
         """
-
+        self.printv(key_subset)
         if tidx is None:
             if self.budget or self.budget_tidx is not None:
                 # if there are budgets loaded, continue loading from that TIDX
@@ -1087,6 +1087,7 @@ class BudgetIO:
             else:
                 iphase =  phase * 100
                 searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*_phase{iphase:03d}.s3D"
+            self.printv(searchstr)
             try:
                 u_fname = next(self.dirname.glob(searchstr))
             except StopIteration as e:
