@@ -941,7 +941,7 @@ class BudgetIO:
         if len(key_subset) > 0:
             self.printv("read_budgets: Successfully loaded budgets. ")
 
-    def _read_budgets_padeops(self, key_subset, tidx):
+    def _read_budgets_padeops(self, key_subset, tidx, phase = None):
         """
         Uses a method similar to ReadVelocities_Budget() in PadeOpsViz to read and store full-field budget terms.
         """
@@ -979,8 +979,11 @@ class BudgetIO:
         # Match requested keys with (budget, term) tuples and load Fortran binaries
         for key in key_subset:
             budget, term = BudgetIO.key[key]
-
-            searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+            if phase is None:
+                searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+            else:
+                iphase =  phase * 100
+                searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*_phase{iphase:03d}.s3D"
             try:
                 u_fname = next(self.dirname.glob(searchstr))
             except StopIteration as e:
