@@ -954,6 +954,7 @@ class BudgetIO:
         self.budget = GridDataset(coords=self.budget.coords)
         self.budget_n = None
         self.budget_tidx = None  # reset to final TIDX
+        self.budget_phase = None
 
         self.printv("clear_budgets(): Cleared loaded budgets: {}".format(loaded_keys))
 
@@ -1010,7 +1011,7 @@ class BudgetIO:
 
         elif len(self.budget) > 0:
             # budgets are already loaded, check which ones
-            if (self.budget_tidx == tidx) or (tidx is None):
+            if ((self.budget_tidx == tidx) or (tidx is None)) and ((self.budget_phase == phase) or (phase is None)):
                 # remove items that have already been loaded in -- this omits overwriting these terms
                 key_subset = {
                     key: key_subset[key]
@@ -1097,6 +1098,7 @@ class BudgetIO:
                 re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
             )  # extract n from string
             self.budget_tidx = tidx  # update self.budget_tidx
+            self.budget_phase = phase # update self.budget_phase
 
             tmp = np.fromfile(u_fname, dtype=np.dtype(np.float64), count=-1)
             self.budget[key] = tmp.reshape(
@@ -1104,7 +1106,10 @@ class BudgetIO:
             )  # reshape into a 3D array
 
         if self.verbose and len(key_subset) > 0:
-            print("BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx))
+            budget_info_str = "BudgetIO loaded the budget fields at TIDX:" + "{:.06f}".format(tidx)
+            if phase is not None:
+                budget_info_str += " and Phase:"+ "{:.03f}".format(phase)
+            print(budget_info_str)
 
     def _read_budgets_npz(self, key_subset, mmap=None):
         """
