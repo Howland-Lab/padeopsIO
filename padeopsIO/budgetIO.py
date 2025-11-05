@@ -1085,7 +1085,7 @@ class BudgetIO:
             if phase is None:
                 searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
             else:
-                iphase =  phase * 100
+                iphase =  int(phase * 100)
                 searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*_phase{iphase:03d}.s3D"
             self.printv(searchstr)
             try:
