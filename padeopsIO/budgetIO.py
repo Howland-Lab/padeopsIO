@@ -1084,15 +1084,24 @@ class BudgetIO:
         for key in key_subset:
             budget, term = BudgetIO.key[key]
             if phase is None:
-                searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*.s3D"
+                # Match files WITHOUT "_phase"
+                pattern = re.compile(
+                    rf"^Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_(?!.*_phase).*\.s3D$"
+                )
             else:
                 iphase =  int(phase * 100)
-                searchstr = f"Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_*_phase{iphase:03d}.s3D"
-            self.printv(searchstr)
+                # Match files WITH specific "_phase###"
+                pattern = re.compile(
+                    rf"^Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_.*_phase{iphase:03d}\.s3D$"
+                )
+            matches = [f for f in self.dirname.iterdir() if pattern.match(f.name)]
+            self.printv(matches)
             try:
-                u_fname = next(self.dirname.glob(searchstr))
+                if len(matches) > 1:
+                    raise RuntimeError(f"Multiple matches found for pattern: {pattern.pattern}")
+                u_fname = matches[0]
             except StopIteration as e:
-                raise FileNotFoundError(f"No files found at {searchstr}")
+                raise FileNotFoundError(f"No files found for pattern: {pattern.pattern}")
 
             self.budget_n = int(
                 re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
