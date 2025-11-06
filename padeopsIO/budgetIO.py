@@ -1011,7 +1011,7 @@ class BudgetIO:
 
         elif len(self.budget) > 0:
             # budgets are already loaded, check which ones
-            if ((self.budget_tidx == tidx) or (tidx is None)) and ((self.budget_phase == phase) or (phase is None)):
+            if ((self.budget_tidx == tidx) or (tidx is None)) and ((self.budget_phase == phase) or (self.budget_phase is None and phase is None)):
                 # remove items that have already been loaded in -- this omits overwriting these terms
                 key_subset = {
                     key: key_subset[key]
