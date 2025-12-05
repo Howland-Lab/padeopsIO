@@ -2007,6 +2007,7 @@ class BudgetIO:
         """
         return self.read_turb_property(tidx, "vvel", **kwargs)
 
+
     def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1):
         """
         Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
@@ -2026,6 +2027,25 @@ class BudgetIO:
         path = path or self.dir_name
         return tools.get_logfiles(path, search_str=search_str, id=id)
 
+
+    def query_logfile(self, search_terms, logfile=None, search_str=None, id=-1, **kwargs):
+        """
+        Queries the PadeOps output log file for text lines printed out by temporalhook.F90.
+
+        By default, the search looks for TERM followed by any arbitrary characters, then at least 1
+        character of white space followed by a number of format %e (exponential). Casts the resulting
+        string into a float.
+
+        see `io_utils.query_logfile()` for more information.
+        """
+        if logfile is None: 
+            if search_str is None: 
+                search_str = "*.o[0-9]*"
+            logfile = self.get_logfiles(search_str=search_str, id=id)
+        
+        return io.query_logfile(logfile, search_terms=search_terms, **kwargs)
+
+
     def get_ustar(self, logfile=None, crop_budget=True, average=True):
         """
         Gleans ustar from the logfile.
@@ -2033,15 +2053,15 @@ class BudgetIO:
         Parameters
         ----------
         logfile : path-like, optional
-            Path to logfile. If None, searches for all files ending in '.o[0-9]*'.
+            Path to logfile. If None, searches for all files ending in '*.o[0-9]*'.
             Default is None.
         crop_budget : bool, optional
             Crops time axis to budgets. Defaults to True.
         average : bool, optional
-            Time averages. Defaults to True.
+            Time averages over the budget_time_avg window. Defaults to True.
         """
         return tools.get_ustar(
-            self, search_str=logfile, crop_budget=crop_budget, average=average
+            self, logfile=logfile, crop_budget=crop_budget, average=average
         )
 
     def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):
