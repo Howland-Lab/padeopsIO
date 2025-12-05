@@ -141,7 +141,7 @@ def list_padeops_files(
     all_files = sum(files.values(), [])  # concatenate all the lists into one list
     all_files.sort()  # sort the files
 
-    # copy the files
+    # prepare the file list
     if not quiet:
         print("Total number of files found: ", len(all_files))
 
