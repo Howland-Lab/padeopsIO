@@ -2038,7 +2038,7 @@ class BudgetIO:
 
         see `io_utils.query_logfile()` for more information.
         """
-        if logfile is None: 
+        if logfile is None:
             if search_str is None:
                 search_str = "*.o[0-9]*"
             logfile = self.get_logfiles(search_str=search_str, id=id)
