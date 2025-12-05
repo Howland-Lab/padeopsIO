@@ -236,9 +236,6 @@ def copy_padeops_data(
         copies logfiles (ending in *.[oe][0-9]*). Default True.
     overwrite : bool, optional
         If True, rewrites existing files. Default False.
-    fname : str, optional
-        Formatted string. Files will be copied into a new directory named
-        fname.format(case.filename). Default: '{:s}'
     quiet : bool, optional
         Silences print statements. Default false.
     """
