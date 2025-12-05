@@ -12,16 +12,14 @@ import shutil  # we will use this to copy files
 import time
 from pathlib import Path
 
-from .. import BudgetIO
-from .. import budgetkey
+from padeopsIO import BudgetIO, budgetkey
 
 budget_keys = budgetkey.get_key()
 
 
-def copy_padeops_data(
+def list_padeops_files(
     case=None,
     case_dir=None,
-    export_dir=None,
     runid=1,
     tidx=None,
     copy_budgets=True,
@@ -31,11 +29,11 @@ def copy_padeops_data(
     copy_fields=True,
     copy_logfiles=True,
     copy_infofiles=True,
-    overwrite=False,
     quiet=False,
+    concatenate=True,
 ):
     """
-    Copy a subset of PadeOps data to a new location
+    Find and return a list of PadeOps data filepaths
 
     Parameters
     ----------
@@ -43,8 +41,6 @@ def copy_padeops_data(
         if `case` is not given, then `case_dir` must be provided.
     case_dir : path-like
         Path to PadeOps source data
-    export_dir : path-like
-        Destination to copy files. Defaults to `case_dir.parent / 'export' / case.filename`
     runid : int, optional
         if `case_dir` is provided, looks for runid. Defaults to 1.
     tidx : int, optional
@@ -66,28 +62,15 @@ def copy_padeops_data(
         fname.format(case.filename). Default: '{:s}'
     quiet : bool, optional
         Silences print statements. Default false.
+    concatenate : bool, optional
+        If True, returns a single list of all files. If False, returns a dictionary
     """
-    time_st = time.perf_counter()  # start timer
-
     # find source data
     if case is None:
         case = BudgetIO(case_dir, padeops=True, runid=runid, quiet=quiet)
         case_dir = Path(case_dir)
     else:
         case_dir = Path(case.dirname)
-
-
-    # set export directory
-    if export_dir is None:
-        target = case_dir.parent / "export" / case.filename
-    else:
-        target = Path(export_dir)
-
-    if not quiet:
-        print("Copying files. Target directory: ", target)
-
-    # make the target directory, if needed
-    target.mkdir(exist_ok=True, parents=True)
 
     # glean last tidx and last budget_tidx if no `tidx` is explicitly given
     if tidx is None:
@@ -156,6 +139,145 @@ def copy_padeops_data(
         files["disk_vel"] = list(case_dir.glob("*.vel"))
 
     all_files = sum(files.values(), [])  # concatenate all the lists into one list
+    all_files.sort()  # sort the files
+
+    # copy the files
+    if not quiet:
+        print("Total number of files to copy: ", len(all_files))
+
+    if concatenate:
+        return all_files
+    else:
+        return files
+
+
+def print_files_stdout(
+    case=None,
+    case_dir=None,
+    runid=1,
+    tidx=None,
+    copy_budgets=True,
+    budget_terms=None,
+    copy_restarts=True,
+    copy_final_restarts=False,
+    copy_fields=True,
+    copy_logfiles=True,
+    copy_infofiles=True,
+):
+    """
+    Print output from `list_padeops_files` to standard out (terminal)
+
+    This may be useful for command line usage, e.g., creating a tarball from a file:
+    ```
+    python loop_thru_cases_and_print_files.py > filelist.txt
+    tar -czvf padeops_data.tar.gz --files-from filelist.txt
+    ```
+    """
+    files = list_padeops_files(
+        case=case,
+        case_dir=case_dir,
+        runid=runid,
+        tidx=tidx,
+        copy_budgets=copy_budgets,
+        budget_terms=budget_terms,
+        copy_restarts=copy_restarts,
+        copy_final_restarts=copy_final_restarts,
+        copy_fields=copy_fields,
+        copy_logfiles=copy_logfiles,
+        copy_infofiles=copy_infofiles,
+        quiet=True,
+        concatenate=True,
+    )
+
+    for f in files:
+        print(str(f))
+
+
+def copy_padeops_data(
+    case=None,
+    case_dir=None,
+    export_dir=None,
+    runid=1,
+    tidx=None,
+    copy_budgets=True,
+    budget_terms=None,
+    copy_restarts=True,
+    copy_final_restarts=False,
+    copy_fields=True,
+    copy_logfiles=True,
+    copy_infofiles=True,
+    overwrite=False,
+    quiet=False,
+):
+    """
+    Copy a subset of PadeOps data to a new location
+
+    Parameters
+    ----------
+    case : BudgetIO object, optional
+        if `case` is not given, then `case_dir` must be provided.
+    case_dir : path-like
+        Path to PadeOps source data
+    export_dir : path-like
+        Destination to copy files. Defaults to `case_dir.parent / 'export' / case.filename`
+    runid : int, optional
+        if `case_dir` is provided, looks for runid. Defaults to 1.
+    tidx : int, optional
+        Uses case.unique_tidx()[-1] if None. Default None
+    copy_budgets : bool, optional
+        Copies budget files if True. Default True.
+    budget_terms : list of terms
+        Parse budget terms
+    copy_restarts : bool, optional
+        Copies restart files if True; restart files must be locatable. Default True.
+    copy_fields : bool, optional
+        Copies final field file dump, if true. Default True.
+    copy_logfiles : bool, optional
+        copies logfiles (ending in *.[oe][0-9]*). Default True.
+    overwrite : bool, optional
+        If True, rewrites existing files. Default False.
+    fname : str, optional
+        Formatted string. Files will be copied into a new directory named
+        fname.format(case.filename). Default: '{:s}'
+    quiet : bool, optional
+        Silences print statements. Default false.
+    """
+    time_st = time.perf_counter()  # start timer
+
+    # find source data
+    if case is None:
+        case = BudgetIO(case_dir, padeops=True, runid=runid, quiet=quiet)
+        case_dir = Path(case_dir)
+    else:
+        case_dir = Path(case.dirname)
+
+    # set export directory
+    if export_dir is None:
+        target = case_dir.parent / "export" / case.filename
+    else:
+        target = Path(export_dir)
+
+    # make the target directory, if needed
+    target.mkdir(exist_ok=True, parents=True)
+
+    if not quiet:
+        print("Copying files. Target directory: ", target)
+
+    all_files = list_padeops_files(
+        case=case,
+        case_dir=case_dir,
+        runid=runid,
+        tidx=tidx,
+        copy_budgets=copy_budgets,
+        budget_terms=budget_terms,
+        copy_restarts=copy_restarts,
+        copy_final_restarts=copy_final_restarts,
+        copy_fields=copy_fields,
+        copy_logfiles=copy_logfiles,
+        copy_infofiles=copy_infofiles,
+        quiet=quiet,
+        concatenate=True,
+    )
 
     # copy the files
     if not quiet:
@@ -268,4 +390,10 @@ if __name__ == "__main__":
     """
     Export from the command line.
     """
-    pass  # TODO: write unit tests
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python export.py <padeops_case_directory>")
+        sys.exit(1)
+
+    case_dir = Path(sys.argv[1]).resolve()
+    copy_padeops_data(case_dir=case_dir)
