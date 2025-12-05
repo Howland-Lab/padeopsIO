@@ -2042,7 +2042,6 @@ class BudgetIO:
             if search_str is None:
                 search_str = "*.o[0-9]*"
             logfile = self.get_logfiles(search_str=search_str, id=id)
-        
         return io.query_logfile(logfile, search_terms=search_terms, **kwargs)
 
 
