@@ -143,7 +143,7 @@ def list_padeops_files(
 
     # copy the files
     if not quiet:
-        print("Total number of files to copy: ", len(all_files))
+        print("Total number of files found: ", len(all_files))
 
     if concatenate:
         return all_files
