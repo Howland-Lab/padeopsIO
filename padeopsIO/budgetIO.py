@@ -218,7 +218,7 @@ class BudgetIO:
 
         elif npz or src == "npz":  # .npz saved files
             self.associate_npz = True
-            self._init_npz()
+            self._init_npz(normalize_origin=normalize_origin)
             self.printv(f"Initialized BudgetIO at {dirname} from .npz files. ")
 
         elif npy or src == "npy":
