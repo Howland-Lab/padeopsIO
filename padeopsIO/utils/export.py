@@ -144,9 +144,9 @@ def list_padeops_files(
     all_files = sum(files.values(), [])  # concatenate all the lists into one list
     all_files.sort()  # sort the files
 
-    # copy the files
+    # prepare the file list
     if not quiet:
-        print("Total number of files to copy: ", len(all_files))
+        print("Total number of files found: ", len(all_files))
 
     if concatenate:
         return all_files
@@ -168,13 +168,38 @@ def print_files_stdout(
     copy_infofiles=True,
 ):
     """
-    Print output from `list_padeops_files` to standard out (terminal)
+    Print output from `list_padeops_files` to standard out (terminal).
 
     This may be useful for command line usage, e.g., creating a tarball from a file:
     ```
     python loop_thru_cases_and_print_files.py > filelist.txt
     tar -czvf padeops_data.tar.gz --files-from filelist.txt
     ```
+
+    Parameters
+    ----------
+    case : str or None
+        Name of the case to process.
+    case_dir : str or None
+        Directory containing the case data.
+    runid : int, optional
+        Run ID to process (default is 1).
+    tidx : int or None, optional
+        Time index to process (default is None, meaning all).
+    copy_budgets : bool, optional
+        Whether to include budget files (default is True).
+    budget_terms : list or None, optional
+        Specific budget terms to include (default is None, meaning all).
+    copy_restarts : bool, optional
+        Whether to include restart files (default is True).
+    copy_final_restarts : bool, optional
+        Whether to include only final restart files (default is False).
+    copy_fields : bool, optional
+        Whether to include field files (default is True).
+    copy_logfiles : bool, optional
+        Whether to include log files (default is True).
+    copy_infofiles : bool, optional
+        Whether to include info files (default is True).
     """
     files = list_padeops_files(
         sim=sim,
@@ -239,9 +264,6 @@ def copy_padeops_data(
         copies logfiles (ending in *.[oe][0-9]*). Default True.
     overwrite : bool, optional
         If True, rewrites existing files. Default False.
-    fname : str, optional
-        Formatted string. Files will be copied into a new directory named
-        fname.format(sim.filename). Default: '{:s}'
     quiet : bool, optional
         Silences print statements. Default false.
     """
