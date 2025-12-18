@@ -12,15 +12,218 @@ import shutil  # we will use this to copy files
 import time
 from pathlib import Path
 
-from .. import BudgetIO
-from .. import budgetkey
+from padeopsIO import BudgetIO, budgetkey
 
 budget_keys = budgetkey.get_key()
 
 
+def list_padeops_files(
+    sim=None,
+    sim_dir=None,
+    runid=1,
+    tidx=None,
+    copy_budgets=True,
+    budget_terms=None,
+    copy_restarts=True,
+    copy_final_restarts=False,
+    copy_fields=True,
+    copy_logfiles=True,
+    copy_infofiles=True,
+    quiet=False,
+    concatenate=True,
+):
+    """
+    Find and return a list of PadeOps data filepaths
+
+    Parameters
+    ----------
+    sim : BudgetIO object, optional
+        if `sim` is not given, then `sim_dir` must be provided.
+    sim_dir : path-like
+        Path to PadeOps source data
+    runid : int, optional
+        if `sim_dir` is provided, looks for runid. Defaults to 1.
+    tidx : int, optional
+        Uses sim.unique_tidx()[-1] if None. Default None
+    copy_budgets : bool, optional
+        Copies budget files if True. Default True.
+    budget_terms : list of terms
+        Parse budget terms
+    copy_restarts : bool, optional
+        Copies restart files if True; restart files must be locatable. Default True.
+    copy_fields : bool, optional
+        Copies final field file dump, if true. Default True.
+    copy_logfiles : bool, optional
+        copies logfiles (ending in *.[oe][0-9]*). Default True.
+    overwrite : bool, optional
+        If True, rewrites existing files. Default False.
+    fname : str, optional
+        Formatted string. Files will be copied into a new directory named
+        fname.format(sim.filename). Default: '{:s}'
+    quiet : bool, optional
+        Silences print statements. Default false.
+    concatenate : bool, optional
+        If True, returns a single list of all files. If False, returns a dictionary
+    """
+    # find source data
+    if sim is None:
+        sim = BudgetIO(sim_dir, padeops=True, runid=runid, quiet=quiet)
+        sim_dir = Path(sim_dir)
+    else:
+        sim_dir = Path(sim.dirname)
+
+    # glean last tidx and last budget_tidx if no `tidx` is explicitly given
+    if tidx is None:
+        last_tidx = sim.unique_tidx(return_last=True)
+        if sim.associate_budgets:
+            last_budget_tidx = sim.unique_budget_tidx(return_last=True)
+        else: 
+            last_budget_tidx = -1
+    else:
+        last_tidx = tidx
+        last_budget_tidx = tidx  # assume these exist
+
+    if not quiet:
+        print(
+            f"Selected the following TID to copy: {last_budget_tidx:.0f} for budgets, {last_tidx:.0f} for fields"
+        )
+
+    # find all of the files... hopefully they are saved in the right place!
+    files = {}
+    if copy_budgets:
+        if budget_terms is None:
+            files["budgets"] = list(
+                sim_dir.glob(f"Run{sim.runid:02d}*budget*_t{last_budget_tidx:06d}*")
+            )
+        else:
+            if isinstance(budget_terms, str):
+                budget_terms = [budget_terms]
+
+            ret = []
+            for key in budget_terms:
+                _b, _id = budget_keys[key]  # pair values
+                ret.append(
+                    list(
+                        sim_dir.glob(
+                            f"Run{sim.runid:02d}_budget{_b}_term{_id:02d}_t{last_budget_tidx:06d}*"
+                        )
+                    )[0]
+                )
+            files["budgets"] = ret
+
+    if copy_fields:
+        files["fields"] = list(
+            sim_dir.glob(f"Run{sim.runid:02d}*_t{last_tidx:06d}.out")
+        )
+
+    if copy_restarts and sim.input_nml["input"]["userestartfile"]:
+        r_tidx = sim.input_nml["input"]["restartfile_tid"]
+        r_id = sim.input_nml["input"]["restartfile_rid"]
+        r_dir = Path(sim.input_nml["input"]["inputdir"])
+        files["restarts"] = list(r_dir.glob(f"RESTART_Run{r_id:02d}*.{r_tidx:06d}"))
+
+    if copy_final_restarts:
+        files["restarts_final"] = list(
+            sim_dir.glob(f"RESTART_Run{sim.runid:02d}*.{last_tidx:06d}")
+        )
+
+    if copy_infofiles:
+        files["infofiles"] = list(sim_dir.glob(f"Run{sim.runid:02d}_info_t*"))
+
+    if copy_logfiles:
+        files["logfiles"] = list(sim_dir.glob("*.[oe][0-9]*"))
+
+    # IO
+    files["input"] = list(sim_dir.glob("*.dat"))
+
+    if sim.associate_turbines:
+        files["turbine"] = [Path(sim.input_nml["windturbines"]["turbinfodir"])]
+        files["power"] = list(sim_dir.glob("*.pow"))
+        files["disk_vel"] = list(sim_dir.glob("*.vel"))
+
+    all_files = sum(files.values(), [])  # concatenate all the lists into one list
+    all_files.sort()  # sort the files
+
+    # prepare the file list
+    if not quiet:
+        print("Total number of files found: ", len(all_files))
+
+    if concatenate:
+        return all_files
+    else:
+        return files
+
+
+def print_files_stdout(
+    sim=None,
+    sim_dir=None,
+    runid=1,
+    tidx=None,
+    copy_budgets=True,
+    budget_terms=None,
+    copy_restarts=True,
+    copy_final_restarts=False,
+    copy_fields=True,
+    copy_logfiles=True,
+    copy_infofiles=True,
+):
+    """
+    Print output from `list_padeops_files` to standard out (terminal).
+
+    This may be useful for command line usage, e.g., creating a tarball from a file:
+    ```
+    python loop_thru_cases_and_print_files.py > filelist.txt
+    tar -czvf padeops_data.tar.gz --files-from filelist.txt
+    ```
+
+    Parameters
+    ----------
+    case : str or None
+        Name of the case to process.
+    case_dir : str or None
+        Directory containing the case data.
+    runid : int, optional
+        Run ID to process (default is 1).
+    tidx : int or None, optional
+        Time index to process (default is None, meaning all).
+    copy_budgets : bool, optional
+        Whether to include budget files (default is True).
+    budget_terms : list or None, optional
+        Specific budget terms to include (default is None, meaning all).
+    copy_restarts : bool, optional
+        Whether to include restart files (default is True).
+    copy_final_restarts : bool, optional
+        Whether to include only final restart files (default is False).
+    copy_fields : bool, optional
+        Whether to include field files (default is True).
+    copy_logfiles : bool, optional
+        Whether to include log files (default is True).
+    copy_infofiles : bool, optional
+        Whether to include info files (default is True).
+    """
+    files = list_padeops_files(
+        sim=sim,
+        sim_dir=sim_dir,
+        runid=runid,
+        tidx=tidx,
+        copy_budgets=copy_budgets,
+        budget_terms=budget_terms,
+        copy_restarts=copy_restarts,
+        copy_final_restarts=copy_final_restarts,
+        copy_fields=copy_fields,
+        copy_logfiles=copy_logfiles,
+        copy_infofiles=copy_infofiles,
+        quiet=True,
+        concatenate=True,
+    )
+
+    for f in files:
+        print(str(f))
+
+
 def copy_padeops_data(
-    case=None,
-    case_dir=None,
+    sim=None,
+    sim_dir=None,
     export_dir=None,
     runid=1,
     tidx=None,
@@ -39,16 +242,16 @@ def copy_padeops_data(
 
     Parameters
     ----------
-    case : BudgetIO object, optional
-        if `case` is not given, then `case_dir` must be provided.
-    case_dir : path-like
+    sim : BudgetIO object, optional
+        if `sim` is not given, then `sim_dir` must be provided.
+    sim_dir : path-like
         Path to PadeOps source data
     export_dir : path-like
-        Destination to copy files. Defaults to `case_dir.parent / 'export' / case.filename`
+        Destination to copy files. Defaults to `sim_dir.parent / 'export' / sim.filename`
     runid : int, optional
-        if `case_dir` is provided, looks for runid. Defaults to 1.
+        if `sim_dir` is provided, looks for runid. Defaults to 1.
     tidx : int, optional
-        Uses case.unique_tidx()[-1] if None. Default None
+        Uses sim.unique_tidx()[-1] if None. Default None
     copy_budgets : bool, optional
         Copies budget files if True. Default True.
     budget_terms : list of terms
@@ -61,101 +264,45 @@ def copy_padeops_data(
         copies logfiles (ending in *.[oe][0-9]*). Default True.
     overwrite : bool, optional
         If True, rewrites existing files. Default False.
-    fname : str, optional
-        Formatted string. Files will be copied into a new directory named
-        fname.format(case.filename). Default: '{:s}'
     quiet : bool, optional
         Silences print statements. Default false.
     """
     time_st = time.perf_counter()  # start timer
 
     # find source data
-    if case is None:
-        case = BudgetIO(case_dir, padeops=True, runid=runid, quiet=quiet)
-        case_dir = Path(case_dir)
+    if sim is None:
+        sim = BudgetIO(sim_dir, padeops=True, runid=runid, quiet=quiet)
+        sim_dir = Path(sim_dir)
     else:
-        case_dir = Path(case.dirname)
-
+        sim_dir = Path(sim.dirname)
 
     # set export directory
     if export_dir is None:
-        target = case_dir.parent / "export" / case.filename
+        target = sim_dir.parent / "export" / sim.filename
     else:
         target = Path(export_dir)
-
-    if not quiet:
-        print("Copying files. Target directory: ", target)
 
     # make the target directory, if needed
     target.mkdir(exist_ok=True, parents=True)
 
-    # glean last tidx and last budget_tidx if no `tidx` is explicitly given
-    if tidx is None:
-        last_tidx = case.unique_tidx(return_last=True)
-        last_budget_tidx = case.unique_budget_tidx(return_last=True)
-    else:
-        last_tidx = tidx
-        last_budget_tidx = tidx  # assume these exist
-
     if not quiet:
-        print(
-            f"Selected the following TID to copy: {last_budget_tidx:.0f} for budgets, {last_tidx:.0f} for fields"
-        )
+        print("Copying files. Target directory: ", target)
 
-    # find all of the files... hopefully they are saved in the right place!
-    files = {}
-    if copy_budgets:
-        if budget_terms is None:
-            files["budgets"] = list(
-                case_dir.glob(f"Run{case.runid:02d}*budget*_t{last_budget_tidx:06d}*")
-            )
-        else:
-            if isinstance(budget_terms, str):
-                budget_terms = [budget_terms]
-
-            ret = []
-            for key in budget_terms:
-                _b, _id = budget_keys[key]  # pair values
-                ret.append(
-                    list(
-                        case_dir.glob(
-                            f"Run{case.runid:02d}_budget{_b}_term{_id:02d}_t{last_budget_tidx:06d}*"
-                        )
-                    )[0]
-                )
-            files["budgets"] = ret
-
-    if copy_fields:
-        files["fields"] = list(
-            case_dir.glob(f"Run{case.runid:02d}*_t{last_tidx:06d}.out")
-        )
-
-    if copy_restarts and case.input_nml["input"]["userestartfile"]:
-        r_tidx = case.input_nml["input"]["restartfile_tid"]
-        r_id = case.input_nml["input"]["restartfile_rid"]
-        r_dir = Path(case.input_nml["input"]["inputdir"])
-        files["restarts"] = list(r_dir.glob(f"RESTART_Run{r_id:02d}*.{r_tidx:06d}"))
-
-    if copy_final_restarts:
-        files["restarts_final"] = list(
-            case_dir.glob(f"RESTART_Run{case.runid:02d}*.{last_tidx:06d}")
-        )
-
-    if copy_infofiles:
-        files["infofiles"] = list(case_dir.glob(f"Run{case.runid:02d}_info_t*"))
-
-    if copy_logfiles:
-        files["logfiles"] = list(case_dir.glob("*.[oe][0-9]*"))
-
-    # IO
-    files["input"] = list(case_dir.glob("*.dat"))
-
-    if case.associate_turbines:
-        files["turbine"] = [Path(case.input_nml["windturbines"]["turbinfodir"])]
-        files["power"] = list(case_dir.glob("*.pow"))
-        files["disk_vel"] = list(case_dir.glob("*.vel"))
-
-    all_files = sum(files.values(), [])  # concatenate all the lists into one list
+    all_files = list_padeops_files(
+        sim=sim,
+        sim_dir=sim_dir,
+        runid=runid,
+        tidx=tidx,
+        copy_budgets=copy_budgets,
+        budget_terms=budget_terms,
+        copy_restarts=copy_restarts,
+        copy_final_restarts=copy_final_restarts,
+        copy_fields=copy_fields,
+        copy_logfiles=copy_logfiles,
+        copy_infofiles=copy_infofiles,
+        quiet=quiet,
+        concatenate=True,
+    )
 
     # copy the files
     if not quiet:
@@ -217,8 +364,8 @@ def export_concurrent(
         Target export directory, must exist.
     """
 
-    # load cases:
-    cases = [
+    # load simulations:
+    sims = [
         BudgetIO(
             name,
             padeops=True,
@@ -229,16 +376,16 @@ def export_concurrent(
         for name in dirs
     ]
     if copy_precursor:
-        # load precursors, same directories as cases
+        # load precursors, same directories as `sims`
         pres = [
             BudgetIO(
-                case.dirname,
+                sim.dirname,
                 padeops=True,
                 verbose=verbose,
                 runid=runid_precursor,
-                normalize_origin=case.origin,
+                normalize_origin=sim.origin,
             )
-            for case in cases
+            for sim in sims
         ]
 
     if export_kwargs is None:  # default kwargs for exporting
@@ -253,19 +400,25 @@ def export_concurrent(
 
     if copy_precursor:
         # this is sloppy coding, please fix  #TODO
-        for case, pre in zip(cases, pres):
-            print("writing", case.filename)
-            pre_name = case.filename + "_precursor"
-            case.write_data(export_dir, fmt=filetype, **export_kwargs)
+        for sim, pre in zip(sims, pres):
+            print("writing", sim.filename)
+            pre_name = sim.filename + "_precursor"
+            sim.write_data(export_dir, fmt=filetype, **export_kwargs)
             pre.write_data(export_dir, filename=pre_name, fmt=filetype, **export_kwargs)
     else:
-        for case in cases:
-            print("writing", case.filename)
-            case.write_data(export_dir, fmt=filetype, **export_kwargs)
+        for sim in sims:
+            print("writing", sim.filename)
+            sim.write_data(export_dir, fmt=filetype, **export_kwargs)
 
 
 if __name__ == "__main__":
     """
     Export from the command line.
     """
-    pass  # TODO: write unit tests
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python export.py <padeops_case_directory>")
+        sys.exit(1)
+
+    sim_dir = Path(sys.argv[1]).resolve()
+    copy_padeops_data(sim_dir=sim_dir)

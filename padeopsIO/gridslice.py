@@ -288,6 +288,49 @@ class XRImshow:
             return im
 
 
+@xr.register_dataset_accessor("pcolormesh")
+@xr.register_dataarray_accessor("pcolormesh")
+class XRPcolormesh:
+    """
+    Add plotting function `pcolormesh` for 2d arrays
+    
+    This is similar to `imshow` except useful for non-uniform grids. It 
+    is also similar to the native `plot` function, but plots the transpose
+    automatically and sets the apsect ratio to 1.0 by default.
+    """
+
+    def __init__(self, xarray_obj):
+        self._obj = xarray_obj
+
+    def __call__(self, ax=None, cbar=True, figsize=None, aspect=1, **kwargs):
+        if isinstance(self._obj, xr.Dataset):
+            if len(self._obj.keys()) > 1:
+                raise ValueError("Cannot plot type `Dataset` with more than 1 key")
+            else:
+                self._obj[next(iter(self._obj))].pcolormesh(ax=ax, cbar=cbar, **kwargs)
+
+        else:
+            if self._obj.ndim != 2:
+                raise AttributeError("pcolormesh() requires 2D data")
+            if ax is None:
+                _, ax = plt.subplots(figsize=figsize)
+
+            im = ax.pcolormesh(
+                *self._obj.grid.xi, self._obj.T, **kwargs
+            )
+            axes = self._obj.grid.keys()
+            ax.set_xlabel(labels[axes[0]])
+            ax.set_ylabel(labels[axes[1]])
+            ax.set_aspect(aspect)
+            if cbar:
+                if self._obj.name in labels.keys():
+                    label = labels[self._obj.name]
+                else:
+                    label = self._obj.name
+                plt.colorbar(im, ax=ax, label=label)
+            return im
+
+
 # ================= helper functions =================
 
 
