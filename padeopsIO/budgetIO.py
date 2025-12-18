@@ -69,6 +69,18 @@ class BudgetIO:
     def ta(self): 
         return self.turbineArray
 
+    @property
+    def xdim(self): 
+        return self.xd
+
+    @property
+    def udim(self): 
+        return self.ud
+
+    @property
+    def tdim(self): 
+        return self.td
+
     def print(self, *args):
         """Prints statements if self.quiet is False"""
         if not self.quiet:
@@ -206,7 +218,7 @@ class BudgetIO:
 
         elif npz or src == "npz":  # .npz saved files
             self.associate_npz = True
-            self._init_npz()
+            self._init_npz(normalize_origin=normalize_origin)
             self.printv(f"Initialized BudgetIO at {dirname} from .npz files. ")
 
         elif npy or src == "npy":
@@ -317,6 +329,24 @@ class BudgetIO:
                 return_last=True
             )  # but may be changed by the user
             self.budget_n = self.last_n
+
+        # evaluate xdim, udim, and tdim
+        g = 9.81
+        omega = 0.0000729
+        try:
+            Ro = self.input_nml['physics']['ro']
+        except:
+            raise ValueError("Ro (Rossby number) not found in the &PHYSICS namelist")
+        try:
+            Fr = self.input_nml['physics']['fr']
+        except:
+            raise ValueError("Fr (Froude number) not found in the &PHYSICS namelist")      
+
+        xd = g * (Fr / Ro / omega)**2
+        ud = g * Fr**2 / omega / Ro
+        self.xd = xd
+        self.ud = ud
+        self.td = xd/max(abs(ud),0.0001)
 
     def _read_inputfile(self, runid=None, strict_runid=False):
         """
@@ -1977,6 +2007,7 @@ class BudgetIO:
         """
         return self.read_turb_property(tidx, "vvel", **kwargs)
 
+
     def get_logfiles(self, path=None, search_str="*.o[0-9]*", id=-1):
         """
         Searches for all logfiles formatted "*.o[0-9]" (Stampede3 format)
@@ -1996,6 +2027,24 @@ class BudgetIO:
         path = path or self.dir_name
         return tools.get_logfiles(path, search_str=search_str, id=id)
 
+
+    def query_logfile(self, search_terms, logfile=None, search_str=None, id=-1, **kwargs):
+        """
+        Queries the PadeOps output log file for text lines printed out by temporalhook.F90.
+
+        By default, the search looks for TERM followed by any arbitrary characters, then at least 1
+        character of white space followed by a number of format %e (exponential). Casts the resulting
+        string into a float.
+
+        see `io_utils.query_logfile()` for more information.
+        """
+        if logfile is None:
+            if search_str is None:
+                search_str = "*.o[0-9]*"
+            logfile = self.get_logfiles(search_str=search_str, id=id)
+        return io.query_logfile(logfile, search_terms=search_terms, **kwargs)
+
+
     def get_ustar(self, logfile=None, crop_budget=True, average=True):
         """
         Gleans ustar from the logfile.
@@ -2003,16 +2052,16 @@ class BudgetIO:
         Parameters
         ----------
         logfile : path-like, optional
-            Path to logfile. If None, searches for all files ending in '.o[0-9]*'.
+            Path to logfile. If None, searches for all files ending in '*.o[0-9]*'.
             Default is None.
         crop_budget : bool, optional
             Crops time axis to budgets. Defaults to True.
         average : bool, optional
-            Time averages. Defaults to True.
+            Time averages over the budget_time_avg window. Defaults to True.
         """
         logfile = "*.o[0-9]*" if logfile is None else logfile
         return tools.get_ustar(
-            self, search_str=logfile, crop_budget=crop_budget, average=average
+            self, logfile=logfile, crop_budget=crop_budget, average=average
         )
 
     def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):
