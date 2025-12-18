@@ -31,8 +31,7 @@ def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
     logfiles = list(path.glob(search_str))
 
     if len(logfiles) == 0:
-        warnings.warn("No logfiles found, returning")
-        return []
+        raise FileNotFoundError(f"No logfiles found with search_str {search_str}")
     elif id is None:
         return logfiles
     else:
@@ -190,9 +189,13 @@ def get_time_ax(self, return_tidx=False, missing_init_ok=True, append_zero=True)
         tidx = np.insert(tidx, 0, 0)
         
     if missing_init_ok and io_utils.key_search_r(self.input_nml, "userestartfile"):
-        first_tid = min(
-            io_utils.key_search_r(self.input_nml, "restartfile_tid"), tidx[0]
-        )
+        restart_tid = io_utils.key_search_r(self.input_nml, "restartfile_tid")
+        restart_rid = io_utils.key_search_r(self.input_nml, "restartfile_rid")
+        if self.runid == restart_rid:
+            # probably we want to consider the entire time series
+            first_tid = min(restart_tid, tidx[0])
+        else: 
+            first_tid = restart_tid
     else:
         first_tid = tidx[0]
 

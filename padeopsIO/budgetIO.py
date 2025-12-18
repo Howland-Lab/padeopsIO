@@ -1056,7 +1056,7 @@ class BudgetIO:
             try:
                 u_fname = next(self.dirname.glob(searchstr))
             except StopIteration as e:
-                raise FileNotFoundError(f"No files found at {searchstr}")
+                raise FileNotFoundError(f"No files found at {self.dirname} matching {searchstr}")
 
             self.budget_n = int(
                 re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
@@ -1683,7 +1683,7 @@ class BudgetIO:
                 tup_list += [((b, term)) for term in terms]  # these are all tuples
 
             # convert tuples to keys
-            t_list = [BudgetIO.key.inverse[key][0] for key in tup_list]
+            t_list = [BudgetIO.key.inverse[key][0] for key in tup_list if key in BudgetIO.key.inverse.keys()]
         # find budgets matching .npz convention in write_npz()
         else:
             if self.associate_npz:
@@ -2010,6 +2010,7 @@ class BudgetIO:
         average : bool, optional
             Time averages. Defaults to True.
         """
+        logfile = "*.o[0-9]*" if logfile is None else logfile
         return tools.get_ustar(
             self, search_str=logfile, crop_budget=crop_budget, average=average
         )
@@ -2076,8 +2077,8 @@ class BudgetIO:
         missing_init_ok : bool (optional)
             If True, then info files do not need to be written on initialization,
             uses a workaround to find the restarts. Default True.
-    append_zero : bool (optional)
-        If True, appends a zero to the time axis. Default True.
+        append_zero : bool (optional)
+            If True, appends a zero to the time axis. Default True.
 
         Returns
         -------
