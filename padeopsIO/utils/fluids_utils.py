@@ -22,6 +22,7 @@ tau_keys = [
     ["tau13", "tau23", "tau33"],
 ]
 tau_keys_list = ["tau11", "tau12", "tau13", "tau22", "tau23", "tau33"]
+dpdxi_keys = ["dpdx", "dpdy", "dpdz"]
 AD_keys = ["xAD", "yAD", "zAD"]
 
 
@@ -619,6 +620,119 @@ def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=("i", "j")):
     # aggregate down
     return ret.transpose(..., *aggregate).sum(aggregate)
 
+def compute_wave_budget(
+    ds_time,
+    ds_phase,
+    dim, # i, j, or k
+    Ro=None,
+    lat=None,
+    galpha=0,
+    fplane=True,
+    is_stratified=True,
+    theta0=0,
+    Fr=0.4,
+):
+    """
+    Computes Wave momentum budgets in the i direction.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+    direction : int
+        Direction, either 0, 1, 2 (x, y, z, respectively)
+    Ro : float
+        Rossby number, defined Ro = G/(Omega L)
+    lat : float
+        Latitude, in radians. Default None
+    galpha : float, optional
+        Geostrophic wind direction, in radians. Default 0
+    fplane : bool
+        Use f-plane approximation if true, default True
+    is_stratified : bool
+        Adds buoyancy term to z-momentum equations if True. Default True.
+    theta0 : float
+        Reference potential temperature in buoyancy equation. Default 0.
+    Fr : float
+        Froude number Fr = U/sqrt(gL). Default 0.4.
+    """
+    dim_i="i"
+    dim_j="j"
+    # time-averaged dataset
+    ui_time = assemble_Ui(ds_time, dim=dim_i)
+    uiuj_time = assemble_uiuj(ds_time, dim_i = dim_i, dim_j = dim_j)  # TODO: might need to change the dim_i, dim_j
+    # tau_ij_time = math.assemble_xr_nd(ds_time, tau_keys, dim=("i", "j"))
+
+     # time-averaged gradients and divergence
+    duidxj_time = compute_dUidxj(ds_time, dim_i="i", dim_j="j")
+    duiujdxj_time = math.xr_gradient(uiuj_time, dim=["x", "y", "z"], concat_along=dim_j)
+
+    if dpdxi_keys[0] in ds_time.data_vars:  # TODO: generalize this beyond i = 0
+        pgf_time = -ds_time[dpdxi_keys[0]]
+    else:
+        pgf_time = math.xr_gradient(ds_time["pbar"], dim=("x"), concat_along="i")
+
+
+    # phase-averaged dataset
+    ui_phase = assemble_Ui(ds_phase, dim=dim)
+    uiuj_phase = assemble_uiuj(ds_time)  # TODO: might need to change the dim_i, dim_j
+    # tau_ij_phase = math.assemble_xr_nd(ds_phase, tau_keys, dim=("i", "j"))
+
+    # phase-averaged gradients and divergence
+    duidxj_phase = compute_dUidxj(ds_phase, dim_i="i", dim_j="j")
+    duiujdxj_phase = math.xr_gradient(uiuj_phase, dim=["x", "y", "z"], concat_along=dim_j)
+
+    if dpdxi_keys[0] in ds_phase.data_vars:  # TODO: generalize this beyond i = 0
+        pgf_phase = -ds_time[dpdxi_keys[0]]
+    else:
+        pgf_phase = math.xr_gradient(ds_phase["pbar"], dim=("x"), concat_along="i")
+
+    # wave-averaged dataset
+    ui_wave = ui_phase - ui_time
+
+    # wave-averaged gradients and divergence
+    duidxj_wave = duidxj_phase - duidxj_time
+    duijdxj_wave = duiujdxj_phase - duiujdxj_time
+    pgf_wave = pgf_phase - pgf_time
+
+    G = [np.cos(galpha), np.sin(galpha), 0]
+
+    # # TODO: add turbine forcing
+
+    ret_ds = (
+        GridDataset(coords=ds_phase.coords)
+        .expand_dims(i=(0, 1, 2), j=(0, 1, 2))
+        .transpose("x", "y", "z", "i", "j")
+    )
+    ret_ds["adv"] = (ui_time * duidxj_wave +
+                  ui_wave * duidxj_time +
+                  ui_wave * duidxj_wave)
+    # TODO: might need to add in the time average of u_i_wave * duidxj_wave if non-sinusoidal
+
+    ret_ds["prss"] = - pgf_wave
+    ret_ds["rs"] = duijdxj_wave
+
+    # TODO: Add these - I think viscous can be skipped bc so small
+    # and my field isn't stratified so no temperature
+
+
+    # check if I am using coriolis rn :(
+    # ret["sgs"] = -sgs_ij
+    # try:
+    #     ret["adm"] = ds[AD_keys[i]]
+    # except KeyError:
+    #     pass
+    # ret["geo"] = (
+    #     -2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * G[1 - i] * np.ones(dims)
+    # )
+    # if fplane:
+    #     ret["cor"] = 2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * (u_j[..., 1 - i])
+    # else:
+    #     raise NotImplementedError("TODO: add full coriolis term")
+
+
+
+
+    return ret_ds
 
 def compute_residual(ds_budget, in_place=False):
     """

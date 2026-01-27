@@ -359,7 +359,7 @@ class RANSBudget(NewBudget):
 
 class RANS_x(RANSBudget):
     """
-    Computes the RANS budgets in the y-direction.
+    Computes the RANS budgets in the x-direction.
     """
 
     __slots__ = ()
@@ -708,3 +708,94 @@ class BudgetMKE(NewBudget):
             theta0=self.theta0,
         )
         fluids.compute_residual(self.base_terms, in_place=True)
+
+# ====================== Triple-Decomposition Wave Budget ========================
+
+class WaveBudget(NewBudget):
+    """
+    Base class for Wave Budget from Tiple Decomposition
+    TODO: add more information!! 
+    """
+
+    __slots__ = ()
+    req_keys = [
+        fluids.uvw_keys + fluids.rs_keys[0] + fluids.tau_keys[0] + ["pbar"],
+        fluids.uvw_keys + fluids.rs_keys[1] + fluids.tau_keys[1] + ["pbar"],
+        fluids.uvw_keys + fluids.rs_keys[2] + fluids.tau_keys[2] + ["pbar"],
+    ]  # required keys in x, y, z
+    opt_keys = [["xAD", "dpdx"], ["yAD", "dpdy"], ["Tbar", "dpdz"]]  # optional keys
+
+    def __init__(
+        self,
+        budget,
+        base_agg=0,
+        Ro=None,
+        Fr=None,
+        lat=None,
+        galpha=0,
+        is_stratified=True,
+        theta0=None,
+        # TODO: what if we don't want to use Coriolis?
+    ):
+        """
+        Initialize non-dimensional Wave budget terms.
+
+        Parameters
+        ----------
+        budget : budget.Budget object
+        base_agg : int
+        Ro : float
+            Rossby number, defined U/(Omega L)
+        Fr : float
+            Froude number, defined U/sqrt{g L}
+        lat : float
+            Latitude, in degrees
+        galpha : float
+            Geostrophic wind direction, in degrees
+        is_stratified : bool
+            Use stratification if True. Default True.
+        theta0 : float
+            Reference potential temperature (K)
+        """
+        super().__init__(budget, base_agg)
+        self.attrs["Ro"] = Ro
+        self.attrs["Fr"] = Fr
+        self.attrs["lat"] = lat * np.pi / 180 if lat else None
+        self.attrs["galpha"] = galpha * np.pi / 180 if galpha else 0
+        self.attrs["is_stratified"] = is_stratified
+        self.attrs["theta0"] = theta0
+        self.attrs["direction"] = None
+
+    def _compute_budget(self):
+        """
+        Computes Wave budgets in x.
+        """
+        self.base_terms = fluids.compute_WAVE(
+            self.budget,
+            self.direction,
+            Ro=self.Ro,
+            lat=self.lat,
+            galpha=self.galpha,
+            is_stratified=self.is_stratified,
+            Fr=self.Fr,
+            theta0=self.theta0,
+        )
+        fluids.compute_residual(self.base_terms, in_place=True)
+
+class Wave_x(WaveBudget):
+    """
+    Computes the Wave budgets in the x-direction.
+    """
+
+    __slots__ = ()
+    req_keys = WaveBudget.req_keys[0]
+    opt_keys = WaveBudget.opt_keys[0]
+
+    def __init__(self, *args, **kwargs):
+        """
+        Initialize non-dimensional Wave budget terms.
+
+        see BudgetMomentum()
+        """
+        super().__init__(*args, **kwargs)
+        self.attrs["dim_key"] = "x"  # x-direction
