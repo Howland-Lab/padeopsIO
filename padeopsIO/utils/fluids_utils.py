@@ -657,29 +657,31 @@ def compute_wave_budget(
     """
     dim_i="i"
     dim_j="j"
+    i = dim
     # time-averaged dataset
     ui_time = assemble_Ui(ds_time, dim=dim_i)
     uiuj_time = assemble_uiuj(ds_time, dim_i = dim_i, dim_j = dim_j)  # TODO: might need to change the dim_i, dim_j
-    # tau_ij_time = math.assemble_xr_nd(ds_time, tau_keys, dim=("i", "j"))
+    tau_ij_time = math.assemble_xr_nd(ds_time, tau_keys, dim=("i", "j"))
 
      # time-averaged gradients and divergence
     duidxj_time = compute_dUidxj(ds_time, dim_i="i", dim_j="j")
     duiujdxj_time = math.xr_gradient(uiuj_time, dim=["x", "y", "z"], concat_along=dim_j)
+    sgs_time = math.xr_gradient(tau_ij_time, dim=["x", "y", "z"], concat_along=dim_j)
 
     if dpdxi_keys[0] in ds_time.data_vars:  # TODO: generalize this beyond i = 0
         pgf_time = -ds_time[dpdxi_keys[0]]
     else:
         pgf_time = math.xr_gradient(ds_time["pbar"], dim=("x"), concat_along="i")
 
-
     # phase-averaged dataset
     ui_phase = assemble_Ui(ds_phase, dim=dim)
     uiuj_phase = assemble_uiuj(ds_time)  # TODO: might need to change the dim_i, dim_j
-    # tau_ij_phase = math.assemble_xr_nd(ds_phase, tau_keys, dim=("i", "j"))
+    tau_ij_phase = math.assemble_xr_nd(ds_phase, tau_keys, dim=("i", "j"))
 
     # phase-averaged gradients and divergence
     duidxj_phase = compute_dUidxj(ds_phase, dim_i="i", dim_j="j")
     duiujdxj_phase = math.xr_gradient(uiuj_phase, dim=["x", "y", "z"], concat_along=dim_j)
+    sgs_phase = math.xr_gradient(tau_ij_phase, dim=["x", "y", "z"], concat_along=dim_j)
 
     if dpdxi_keys[0] in ds_phase.data_vars:  # TODO: generalize this beyond i = 0
         pgf_phase = -ds_time[dpdxi_keys[0]]
@@ -693,6 +695,7 @@ def compute_wave_budget(
     duidxj_wave = duidxj_phase - duidxj_time
     duijdxj_wave = duiujdxj_phase - duiujdxj_time
     pgf_wave = pgf_phase - pgf_time
+    sgs_wave = sgs_phase - sgs_time
 
     G = [np.cos(galpha), np.sin(galpha), 0]
 
@@ -711,16 +714,14 @@ def compute_wave_budget(
     ret_ds["prss"] = - pgf_wave
     ret_ds["rs"] = duijdxj_wave
 
-    # TODO: Add these - I think viscous can be skipped bc so small
+    # TODO: I think viscous can be skipped bc so small
     # and my field isn't stratified so no temperature
 
-
-    # check if I am using coriolis rn :(
-    # ret["sgs"] = -sgs_ij
-    # try:
-    #     ret["adm"] = ds[AD_keys[i]]
-    # except KeyError:
-    #     pass
+    ret_ds["sgs"] = -ret_ds
+    try:
+        ret_ds["adm"] = ret_ds[AD_keys[i]]
+    except KeyError:
+        pass
     # ret["geo"] = (
     #     -2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * G[1 - i] * np.ones(dims)
     # )
@@ -728,9 +729,6 @@ def compute_wave_budget(
     #     ret["cor"] = 2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * (u_j[..., 1 - i])
     # else:
     #     raise NotImplementedError("TODO: add full coriolis term")
-
-
-
 
     return ret_ds
 
