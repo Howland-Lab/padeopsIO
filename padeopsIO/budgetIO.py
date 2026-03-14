@@ -2044,6 +2044,26 @@ class BudgetIO:
             logfile = self.get_logfiles(search_str=search_str, id=id)
         return io.query_logfile(logfile, search_terms=search_terms, **kwargs)
 
+    def get_logqty_timeavg(self, key, logfile=None, crop_budget=True, average=True):
+        """
+        Gleans ustar from the logfile.
+
+        Parameters
+        ----------
+        key : str
+            Key to search for in the logfile.
+        logfile : path-like, optional
+            Path to logfile. If None, searches for all files ending in '*.o[0-9]*'.
+            Default is None.
+        crop_budget : bool, optional
+            Crops time axis to budgets. Defaults to True.
+        average : bool, optional
+            Time averages over the budget_time_avg window. Defaults to True.
+        """
+        return tools.get_logqty_timeavg(
+            key,
+            self=self, logfile=logfile, crop_budget=crop_budget, average=average
+        )
 
     def get_ustar(self, logfile=None, crop_budget=True, average=True):
         """
@@ -2059,8 +2079,9 @@ class BudgetIO:
         average : bool, optional
             Time averages over the budget_time_avg window. Defaults to True.
         """
-        return tools.get_ustar(
-            self, logfile=logfile, crop_budget=crop_budget, average=average
+        return tools.get_logqty_timeavg(
+            "u_star",
+            self=self, logfile=logfile, crop_budget=crop_budget, average=average
         )
 
     def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):

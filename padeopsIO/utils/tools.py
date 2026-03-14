@@ -29,14 +29,60 @@ def get_logfiles(path, search_str="*.o[0-9]*", id=-1):
         If multiple logfiles exist, selects this index of the list
     """
     logfiles = list(path.glob(search_str))
+    logfiles.sort()
 
     if len(logfiles) == 0:
-        warnings.warn("No logfiles found, returning")
-        return []
+        raise FileNotFoundError("No logfiles found, returning")  # this used to just give a warning message
     elif id is None:
         return logfiles
     else:
         return logfiles[id]
+
+
+def get_logqty_timeavg(
+    key, self=None, logfile=None, search_str="*.o[0-9]*", crop_budget=True, average=True
+):
+    """
+    Gleans a time-averaged quantity over the budget averaging period from the logfile.
+
+    Parameters
+    ----------
+    key: str
+        Key to search for in the logfile
+    self : BudgetIO object, optional
+        if None, then logfile must be a full path (and not a filename)
+    logfile : path-like, optional
+        Path to logfile.
+    search_str : str, optional
+        String to match. Default: searches for all files ending in '.o[0-9]*'.
+    crop_budget : bool, optional
+        Crops time axis to budgets. Defaults to True.
+    average : bool, optional
+        Time averages. Defaults to True.
+    """
+
+    if self is not None:
+        logfile = get_logfiles(self.dir_name, search_str=search_str)
+    elif logfile is not None:
+        logfile = Path(logfile)
+    else:
+        raise ValueError(
+            "get_logqty_timeavg(): Requires either BudgetIO object `self` or path-like `logfile`."
+        )
+
+    # match the last one and read ustar... could fix this later
+    ret = io_utils.query_logfile(logfile, search_terms=[key, "TIDX", "Time"])
+
+    nml = self.input_nml
+    if crop_budget and nml["budget_time_avg"]["do_budgets"]:
+        try:
+            time_budget_st = nml["budget_time_avg"]["time_budget_start"]
+            filt = ret["Time"] > time_budget_st
+            return np.mean(ret[key][filt])
+        except KeyError as e:
+            raise  # fix this later
+
+    return np.mean(ret[key]) if average else ret[key]
 
 
 def get_ustar(
@@ -58,31 +104,14 @@ def get_ustar(
     average : bool, optional
         Time averages. Defaults to True.
     """
-    if self is not None:
-        logfile = get_logfiles(self.dir_name, search_str=search_str, id=-1)
-    elif logfile is not None:
-        logfile = Path(logfile)
-    else:
-        raise ValueError(
-            "get_ustar(): Requires either BudgetIO object `self` or path-like `logfile`."
-        )
-
-    # match the last one and read ustar... could fix this later
-    ret = io_utils.query_logfile(logfile, search_terms=["u_star", "TIDX", "Time"])
-
-    nml = self.input_nml
-    if crop_budget and nml["budget_time_avg"]["do_budgets"]:
-        try:
-            time_budget_st = nml["budget_time_avg"]["time_budget_start"]
-            filt = ret["Time"] > time_budget_st
-            return np.mean(ret["u_star"][filt])
-        except KeyError as e:
-            raise  # fix this later
-
-    if average:
-        return np.mean(ret["u_star"])
-    else:
-        return ret["u_star"]
+    return get_logqty_timeavg(
+        "u_star",
+        self=self,
+        logfile=logfile,
+        search_str=search_str,
+        crop_budget=crop_budget,
+        average=average
+    )
 
 
 def get_uhub(self, z_hub=0, use_fields=False, **slice_kwargs):
