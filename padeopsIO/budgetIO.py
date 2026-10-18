@@ -190,6 +190,10 @@ class BudgetIO:
         self.associate_turbines = False
         self.normalized_xyz = False
 
+        # keys needed for phase budgets
+        self.budget_phase = None
+        self.budget_tidx = None
+
         if padeops or src == "padeops":
             # at this point, we are reading from PadeOps output files
             self.associate_padeops = True
@@ -1084,24 +1088,22 @@ class BudgetIO:
         for key in key_subset:
             budget, term = BudgetIO.key[key]
             if phase is None:
-                # Match files WITHOUT "_phase"
+                # time-averaged files: no "_phase" suffix
                 pattern = re.compile(
                     rf"^Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_(?!.*_phase).*\.s3D$"
                 )
             else:
-                iphase =  int(phase * 100)
-                # Match files WITH specific "_phase###"
+                iphase = self._iphase(phase)
                 pattern = re.compile(
                     rf"^Run{self.runid:02d}_budget{budget:01d}_term{term:02d}_t{tidx:06d}_.*_phase{iphase:03d}\.s3D$"
                 )
             matches = [f for f in self.dirname.iterdir() if pattern.match(f.name)]
             self.printv(matches)
-            try:
-                if len(matches) > 1:
-                    raise RuntimeError(f"Multiple matches found for pattern: {pattern.pattern}")
-                u_fname = matches[0]
-            except StopIteration as e:
+            if len(matches) == 0:
                 raise FileNotFoundError(f"No files found for pattern: {pattern.pattern}")
+            if len(matches) > 1:
+                raise RuntimeError(f"Multiple matches found for pattern: {pattern.pattern}")
+            u_fname = matches[0]
 
             self.budget_n = int(
                 re.findall(r".*_t\d+_n(\d+)", str(u_fname))[0]
@@ -2149,3 +2151,84 @@ class BudgetIO:
         Returns a string representation of the BudgetIO object.
         """
         return (f"BudgetIO(dirname={str(self.dirname.resolve())}, runid={self.runid})")
+
+    @staticmethod
+    def _iphase(phase):
+        """Integer phase label, matching Fortran nint(phase*100) (round half away from zero)."""
+        return int(np.floor(phase * 100.0 + 0.5))
+
+    def unique_budget_phases(self, tidx=None):
+        """Sorted array of phases (iphase/100) that have phase-averaged budget files."""
+        if not self.associate_padeops:
+            return None
+        t = r"\d+" if tidx is None else f"{tidx:06d}"
+        search_str = r"Run{:02d}_budget\d_term\d+_t" + t + r"_.*_phase(\d+)\.s3D"
+        return np.asarray(self.get_unique_ids(search_str=search_str), dtype=float) / 100.0
+
+    def read_phase_budgets(self, budget_terms, phases=None, tidx=None,
+                           phase_dim="phase", snap_uniform=True, **slice_kwargs):
+        """
+        Load phase-averaged budgets for every phase bin and stack them along `phase_dim`.
+
+        Parameters
+        ----------
+        budget_terms : list of budget keys (e.g. ["ubar", ..., "DuDt", "xAD"])
+        phases : array-like, optional. Default: all phases found on disk.
+        tidx : int, optional. Default: last TIDX that has phase files.
+        snap_uniform : bool
+            Filenames store phase to 0.01; if the bins are nominally uniform,
+            replace the labels with the exact uniform grid phi0 + k/N.
+        slice_kwargs : xlim, ylim, zlim (use tuples so fields stay 3D)
+
+        Returns
+        -------
+        ds_phase : GridDataset with dims (phase, x, y, z)
+        weights : xr.DataArray of samples per bin (the `_n` counter in each filename)
+        """
+        if phases is None:
+            phases = self.unique_budget_phases(tidx=tidx)
+        phases = np.sort(np.atleast_1d(np.asarray(phases, dtype=float)))
+        if tidx is None:  # all phases dump on the same step
+            tidx = self.get_unique_ids(
+                search_str=r"Run{:02d}_budget.*_t(\d+)_.*_phase\d+\.s3D", return_last=True
+            )
+
+        slices, counts = [], []
+        for ph in phases:
+            slices.append(self.slice(budget_terms=budget_terms, tidx=tidx, phase=float(ph),
+                                     overwrite=True, **slice_kwargs))
+            counts.append(self.budget_n)
+
+        coords = phases
+        if snap_uniform:
+            nominal = phases[0] + np.arange(len(phases)) / len(phases)
+            if np.max(np.abs(nominal - phases)) <= 0.005 + 1e-12:
+                coords = nominal
+            else:
+                self.warn("read_phase_budgets(): phases do not tile [0, 1) uniformly.")
+
+        ds_phase = xr.concat(slices, dim=phase_dim).assign_coords({phase_dim: coords})
+        weights = xr.DataArray(np.asarray(counts, dtype=float), dims=phase_dim,
+                               coords={phase_dim: coords})
+        self.clear_budgets()
+        return ds_phase, weights
+
+    def read_wave_budgets(self, budget_terms, phase, tidx=None, **slice_kwargs):
+        """
+        Load inputs for the wave budget.
+
+        phase : float -> one phase bin; list/array or "all" -> stacked along `phase`.
+        Returns (ds_phase, ds_time). Use tuples for xlim/ylim/zlim (fields stay 3D).
+        """
+        ds_time = self.slice(budget_terms=budget_terms, tidx=tidx, phase=None,
+                             overwrite=True, **slice_kwargs).copy()
+        if isinstance(phase, str) and phase == "all":
+            ds_phase, _ = self.read_phase_budgets(budget_terms, tidx=tidx, **slice_kwargs)
+        elif np.ndim(phase) == 0:
+            ds_phase = self.slice(budget_terms=budget_terms, tidx=tidx, phase=float(phase),
+                                  overwrite=True, **slice_kwargs).copy()
+        else:
+            ds_phase, _ = self.read_phase_budgets(budget_terms, phases=phase, tidx=tidx,
+                                                  **slice_kwargs)
+        self.clear_budgets()
+        return ds_phase, ds_time

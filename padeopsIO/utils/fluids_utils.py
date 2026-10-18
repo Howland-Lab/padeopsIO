@@ -620,118 +620,6 @@ def compute_mke_budget(ds, Fr=None, theta0=300.0, aggregate=("i", "j")):
     # aggregate down
     return ret.transpose(..., *aggregate).sum(aggregate)
 
-def compute_wave_budget(
-    ds_time,
-    ds_phase,
-    dim, # i, j, or k
-    Ro=None,
-    lat=None,
-    galpha=0,
-    fplane=True,
-    is_stratified=True,
-    theta0=0,
-    Fr=0.4,
-):
-    """
-    Computes Wave momentum budgets in the i direction.
-
-    Parameters
-    ----------
-    ds : xr.Dataset
-    direction : int
-        Direction, either 0, 1, 2 (x, y, z, respectively)
-    Ro : float
-        Rossby number, defined Ro = G/(Omega L)
-    lat : float
-        Latitude, in radians. Default None
-    galpha : float, optional
-        Geostrophic wind direction, in radians. Default 0
-    fplane : bool
-        Use f-plane approximation if true, default True
-    is_stratified : bool
-        Adds buoyancy term to z-momentum equations if True. Default True.
-    theta0 : float
-        Reference potential temperature in buoyancy equation. Default 0.
-    Fr : float
-        Froude number Fr = U/sqrt(gL). Default 0.4.
-    """
-    dim_i="i"
-    dim_j="j"
-    i = dim
-    # time-averaged dataset
-    ui_time = assemble_Ui(ds_time, dim=dim_i)
-    uiuj_time = assemble_uiuj(ds_time, dim_i = dim_i, dim_j = dim_j)  # TODO: might need to change the dim_i, dim_j
-    tau_ij_time = math.assemble_xr_nd(ds_time, tau_keys, dim=("i", "j"))
-
-     # time-averaged gradients and divergence
-    duidxj_time = compute_dUidxj(ds_time, dim_i="i", dim_j="j")
-    duiujdxj_time = math.xr_gradient(uiuj_time, dim=["x", "y", "z"], concat_along=dim_j)
-    sgs_time = math.xr_gradient(tau_ij_time, dim=["x", "y", "z"], concat_along=dim_j)
-
-    if dpdxi_keys[0] in ds_time.data_vars:  # TODO: generalize this beyond i = 0
-        pgf_time = -ds_time[dpdxi_keys[0]]
-    else:
-        pgf_time = math.xr_gradient(ds_time["pbar"], dim=("x"), concat_along="i")
-
-    # phase-averaged dataset
-    ui_phase = assemble_Ui(ds_phase, dim=dim)
-    uiuj_phase = assemble_uiuj(ds_time)  # TODO: might need to change the dim_i, dim_j
-    tau_ij_phase = math.assemble_xr_nd(ds_phase, tau_keys, dim=("i", "j"))
-
-    # phase-averaged gradients and divergence
-    duidxj_phase = compute_dUidxj(ds_phase, dim_i="i", dim_j="j")
-    duiujdxj_phase = math.xr_gradient(uiuj_phase, dim=["x", "y", "z"], concat_along=dim_j)
-    sgs_phase = math.xr_gradient(tau_ij_phase, dim=["x", "y", "z"], concat_along=dim_j)
-
-    if dpdxi_keys[0] in ds_phase.data_vars:  # TODO: generalize this beyond i = 0
-        pgf_phase = -ds_time[dpdxi_keys[0]]
-    else:
-        pgf_phase = math.xr_gradient(ds_phase["pbar"], dim=("x"), concat_along="i")
-
-    # wave-averaged dataset
-    ui_wave = ui_phase - ui_time
-
-    # wave-averaged gradients and divergence
-    duidxj_wave = duidxj_phase - duidxj_time
-    duijdxj_wave = duiujdxj_phase - duiujdxj_time
-    pgf_wave = pgf_phase - pgf_time
-    sgs_wave = sgs_phase - sgs_time
-
-    G = [np.cos(galpha), np.sin(galpha), 0]
-
-    # # TODO: add turbine forcing
-
-    ret_ds = (
-        GridDataset(coords=ds_phase.coords)
-        .expand_dims(i=(0, 1, 2), j=(0, 1, 2))
-        .transpose("x", "y", "z", "i", "j")
-    )
-    ret_ds["adv"] = (ui_time * duidxj_wave +
-                  ui_wave * duidxj_time +
-                  ui_wave * duidxj_wave)
-    # TODO: might need to add in the time average of u_i_wave * duidxj_wave if non-sinusoidal
-
-    ret_ds["prss"] = - pgf_wave
-    ret_ds["rs"] = duijdxj_wave
-
-    # TODO: I think viscous can be skipped bc so small
-    # and my field isn't stratified so no temperature
-
-    ret_ds["sgs"] = -ret_ds
-    try:
-        ret_ds["adm"] = ret_ds[AD_keys[i]]
-    except KeyError:
-        pass
-    # ret["geo"] = (
-    #     -2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * G[1 - i] * np.ones(dims)
-    # )
-    # if fplane:
-    #     ret["cor"] = 2 / Ro * np.sin(lat) * math.e_ijk(i, 1 - i, 2) * (u_j[..., 1 - i])
-    # else:
-    #     raise NotImplementedError("TODO: add full coriolis term")
-
-    return ret_ds
-
 def compute_residual(ds_budget, in_place=False):
     """
     Computes the residual of a budget dataset.
@@ -754,3 +642,283 @@ def compute_residual(ds_budget, in_place=False):
         ds_budget["residual"] = residual
     else:
         return residual
+
+# ============================================================================
+# ============ WAVE-COHERENT (TRIPLE-DECOMPOSITION) MOMENTUM BUDGET ==========
+# ============================================================================
+#   f = fbar + f~ + f'      <f>(phi) = fbar + f~      u' = u - <u|phi>
+#   fbar from the time-averaged budget, <f> from the phase-averaged budget.
+
+_xyz = ("x", "y", "z")
+sgs_keys = ["xSGS", "ySGS", "zSGS"]
+
+# PadeOps budget-1 terms: the full RHS of the resolved momentum equation.
+# (zAD is not written by PadeOps; it is listed so tests/other data can supply it.)
+les_keys = [
+    {"nonlin": "DuDt", "prss": "dpdx", "sgs": "xSGS", "adm": "xAD", "cor": "xCor", "geo": "xGeo"},
+    {"nonlin": "DvDt", "prss": "dpdy", "sgs": "ySGS", "adm": "yAD", "cor": "yCor", "geo": "yGeo"},
+    {"nonlin": "DwDt", "prss": "dpdz", "sgs": "zSGS", "adm": "zAD", "buoy": "zBuoy"},
+]
+
+
+def _usable(da):
+    """False if a field is identically zero (e.g. broken budget-1 output)."""
+    return bool(np.abs(da).max() > 0)
+
+
+def sum_over(da, dims=("j",)):
+    """Sum over whichever of `dims` exist in `da`."""
+    present = [d for d in dims if d in da.dims]
+    return da.sum(present) if present else da
+
+
+def phase_mean(da, phase_dim="phase", weights=None):
+    """Mean over phase bins (diagnostics only)."""
+    return da.mean(phase_dim) if weights is None else da.weighted(weights).mean(phase_dim)
+
+
+def phase_ddt(da, period, phase_period=1.0, phase_dim="phase",
+              method="spectral", atol=0.006):
+    """
+    d/dt of a phase-averaged field from neighbouring phase bins:
+        d/dt = (phase_period / period) d/dphi.
+    Bins must be sorted, uniform and tile one cycle. "spectral" (FFT) is exact for
+    resolved harmonics; "central" is 2nd order.
+    """
+    phi = np.asarray(da[phase_dim].values, dtype=float)
+    n = phi.size
+    if n < 3:
+        raise ValueError("phase_ddt(): need >= 3 phase bins.")
+    dphi = phase_period / n
+    if np.max(np.abs(phi - (phi[0] + dphi * np.arange(n)))) > atol * phase_period:
+        raise ValueError("phase_ddt(): bins must be sorted, uniform and tile one cycle.")
+    scale = phase_period / period
+    if method == "central":
+        fwd = da.roll({phase_dim: -1}, roll_coords=False)
+        bwd = da.roll({phase_dim: 1}, roll_coords=False)
+        return (fwd - bwd) / (2 * dphi) * scale
+    if method != "spectral":
+        raise ValueError("phase_ddt(): method must be 'spectral' or 'central'")
+    k = 2j * np.pi * np.fft.fftfreq(n, d=dphi)
+    if n % 2 == 0:
+        k[n // 2] = 0.0
+    _d = lambda a: np.real(np.fft.ifft(k * np.fft.fft(a, axis=-1), axis=-1))
+    out = xr.apply_ufunc(_d, da, input_core_dims=[[phase_dim]], output_core_dims=[[phase_dim]])
+    return out.transpose(*da.dims) * scale
+
+
+def _wave_of(ds_phase, ds_time, key, say):
+    """Wave part <f> - fbar of a stored field, or None if missing/unusable."""
+    if key is None or key not in ds_phase.data_vars or key not in ds_time.data_vars:
+        return None
+    if not (_usable(ds_phase[key]) and _usable(ds_time[key])):
+        say(f"'{key}' is identically zero in the phase or time budget; not using it.")
+        return None
+    return ds_phase[key] - ds_time[key]
+
+
+def wave_storage_from_solver(ds_phase, ds_time, direction, verbose=True):
+    """
+    du~_i/dt = sum_k (S_k^phase - S_k^time) over all PadeOps RHS terms S_k.
+    Works for a single phase. Every RHS term with nonzero contribution must be loaded
+    (DuDt, dpdx, xSGS, xAD; plus xCor/xGeo if Coriolis matters).
+    """
+    i = int(direction)
+    parts = []
+    for name, key in les_keys[i].items():
+        if key in ds_phase.data_vars and key in ds_time.data_vars:
+            if not (_usable(ds_phase[key]) and _usable(ds_time[key])):
+                raise ValueError(f"storage='solver': '{key}' is identically zero; "
+                                 "budget-1 output is broken (see Fortran fix).")
+            parts.append(ds_phase[key] - ds_time[key])
+        elif name == "nonlin":
+            raise KeyError(f"storage='solver' needs '{key}' in both phase and time budgets")
+    return sum(parts)
+
+
+def compute_wave_budget(
+    ds_phase,
+    ds_time,
+    direction,
+    storage="solver",
+    period=None,
+    phase_period=1.0,
+    phase_dim="phase",
+    adv_form="advective",
+    coriolis=None,
+    buoyancy=False,
+    prefer_solver_terms=True,
+    ddt_method="spectral",
+    verbose=True,
+):
+    """
+    Wave-coherent momentum budget at one or more phases. All terms on the RHS (sum -> 0):
+
+      storage  : -d u~_i/dt              (storage = "solver" | "phases" | None)
+      adv      : -ubar_j d u~_i/dx_j     (wave advected by mean flow)
+      prod     : -u~_j d ubar_i/dx_j     (mean shear acting on the wave)
+      wavewave : -u~_j d u~_i/dx_j       (wave-wave interaction at this phase)
+      rs_phase : -d <u_i'u_j'>_phi/dx_j  (turbulent stress at this phase)
+      rs_time  : +d R^time_ij/dx_j       (time-avg total stress = mean wave + mean turb.)
+      prss     : wave part of pressure gradient
+      sgs      : wave part of SGS (+ wall) stress divergence
+      adm      : wave part of turbine forcing
+      cor/buoy : wave part of Coriolis / buoyancy (solver terms; off by default)
+
+    adv + prod + wavewave + rs_phase + rs_time = wave part of DuDt (skew-symmetric).
+    adv_form="conservative" writes the first three as divergences (same if div-free).
+
+    Parameters
+    ----------
+    ds_phase : phase-averaged fields; dims (x, y, z) or (phase, x, y, z)
+    ds_time : time-averaged fields; dims (x, y, z)
+    direction : 0, 1, 2
+    storage : "solver" (one phase OK), "phases" (needs all bins + period), or None
+    period : wave period in simulation time units (1/surge_freq)
+    """
+    i = int(direction)
+    if i not in (0, 1, 2):
+        raise ValueError("direction must be 0, 1, or 2")
+
+    def say(msg):
+        if verbose:
+            print("compute_wave_budget():", msg)
+
+    grad = lambda da: math.xr_gradient(da, dim=_xyz, concat_along="j")
+    div = lambda F: math.xr_div(F, dim="j", sum=False)
+    in_both = lambda k: k in ds_phase.data_vars and k in ds_time.data_vars
+    solver = lambda name: (_wave_of(ds_phase, ds_time, les_keys[i].get(name), say)
+                           if prefer_solver_terms else None)
+
+    # ---- velocities ----
+    u_phase = assemble_Ui(ds_phase, dim="i")   # <u_i>(phi)
+    U = assemble_Ui(ds_time, dim="i")          # ubar_i
+    u_w = u_phase - U                          # u~_i
+    U_j, u_w_j = U.rename(i="j"), u_w.rename(i="j")
+    U_i, u_w_i = U.isel(i=i, drop=True), u_w.isel(i=i, drop=True)
+
+    ret = {}
+
+    # ---- storage ----
+    if storage == "solver":
+        ret["storage"] = -wave_storage_from_solver(ds_phase, ds_time, i, verbose)
+    elif storage == "phases":
+        if period is None or phase_dim not in ds_phase.dims:
+            raise ValueError("storage='phases' needs all phase bins (a 'phase' dim) and `period`")
+        ret["storage"] = -phase_ddt(u_w_i, period, phase_period, phase_dim, method=ddt_method)
+    elif storage is not None:
+        raise ValueError("storage must be 'solver', 'phases', or None")
+
+    # ---- nonlinear terms ----
+    if adv_form == "advective":
+        ret["adv"] = -U_j * grad(u_w_i)
+        ret["prod"] = -u_w_j * grad(U_i)
+        ret["wavewave"] = -u_w_j * grad(u_w_i)
+    elif adv_form == "conservative":
+        ret["adv"] = -div(U_j * u_w_i)
+        ret["prod"] = -div(u_w_j * U_i)
+        ret["wavewave"] = -div(u_w_j * u_w_i)
+    else:
+        raise ValueError("adv_form must be 'advective' or 'conservative'")
+    ret["rs_phase"] = -div(math.assemble_xr_1d(ds_phase, rs_keys[i], dim="j"))
+    ret["rs_time"] = div(math.assemble_xr_1d(ds_time, rs_keys[i], dim="j"))
+
+    # ---- pressure ----
+    f = solver("prss")
+    if f is not None:
+        ret["prss"] = f                        # PadeOps dpdx is already -dp/dx
+    elif in_both("pbar"):
+        ret["prss"] = -(ds_phase["pbar"] - ds_time["pbar"]).differentiate(_xyz[i])
+    else:
+        say("no pressure term available")
+
+    # ---- SGS ----
+    f = solver("sgs")
+    if f is not None:
+        ret["sgs"] = f
+    elif all(in_both(k) for k in tau_keys[i]):
+        tau_w = (math.assemble_xr_1d(ds_phase, tau_keys[i], dim="j")
+                 - math.assemble_xr_1d(ds_time, tau_keys[i], dim="j"))
+        ret["sgs"] = -div(tau_w)
+    else:
+        say(f"no SGS terms for direction {i}")
+
+    # ---- turbine forcing (only available from the solver) ----
+    f = _wave_of(ds_phase, ds_time, les_keys[i].get("adm"), say)
+    if f is not None:
+        ret["adm"] = f
+
+    # ---- Coriolis / buoyancy (solver terms) ----
+    if coriolis == "solver":
+        f = _wave_of(ds_phase, ds_time, les_keys[i].get("cor"), say)
+        if f is not None:
+            ret["cor"] = f
+    elif coriolis is not None:
+        raise ValueError("coriolis must be None or 'solver'")
+    if buoyancy:
+        f = _wave_of(ds_phase, ds_time, les_keys[i].get("buoy"), say)
+        if f is not None:
+            ret["buoy"] = f
+
+    out = ds_phase.drop_vars(list(ds_phase.data_vars))
+    order = (phase_dim,) + _xyz
+    for key, val in ret.items():
+        out[key] = val.transpose(*[d for d in order if d in val.dims], ...)
+    return out
+
+
+def compute_wave_residual(ds_budget, sum_dims=("j",), in_place=False):
+    """Residual = sum of all terms (summed over j); the phase dimension is kept."""
+    residual = sum(sum_over(ds_budget[k], sum_dims)
+                   for k in ds_budget.data_vars if k != "residual")
+    if in_place:
+        ds_budget["residual"] = residual
+    else:
+        return residual
+
+
+def compute_wave_les_budget(ds_phase, ds_time, direction, period, phase_period=1.0,
+                            phase_dim="phase", ddt_method="spectral", verbose=True):
+    """
+    Check A (needs all phase bins): storage from neighbouring phases vs. the wave
+    parts of the PadeOps RHS terms. No spatial derivatives -> residual ~ 0.
+    """
+    i = int(direction)
+    say = (lambda m: print("compute_wave_les_budget():", m)) if verbose else (lambda m: None)
+    out = ds_phase.drop_vars(list(ds_phase.data_vars))
+    u_w = ds_phase[uvw_keys[i]] - ds_time[uvw_keys[i]]
+    out["storage"] = -phase_ddt(u_w, period, phase_period, phase_dim, method=ddt_method)
+    for name, key in les_keys[i].items():
+        f = _wave_of(ds_phase, ds_time, key, say)
+        if f is not None:
+            out[name] = f
+    out["residual"] = sum(out[k] for k in list(out.data_vars))
+    return out
+
+
+def split_time_stress(ds_phase, ds_time, direction, phase_dim="phase", weights=None):
+    """
+    Optional (needs all phase bins): rs_time = rs_wave_mean + rs_turb_mean, where
+        rs_wave_mean = +d mean(u~_i u~_j)/dx_j,  rs_turb_mean = +d mean(u_i'u_j')/dx_j.
+    """
+    i = int(direction)
+    div = lambda F: math.xr_div(F, dim="j", sum=False)
+    u_w = assemble_Ui(ds_phase, dim="i") - assemble_Ui(ds_time, dim="i")
+    wave_stress = phase_mean(u_w.isel(i=i, drop=True) * u_w.rename(i="j"), phase_dim, weights)
+    R_time = math.assemble_xr_1d(ds_time, rs_keys[i], dim="j")
+    out = ds_time.drop_vars(list(ds_time.data_vars))
+    out["rs_wave_mean"] = div(wave_stress)
+    out["rs_turb_mean"] = div(R_time - wave_stress)
+    return out
+
+
+def compare_phase_to_time(ds_phase, ds_time, keys=None, phase_dim="phase", weights=None):
+    """Check 0: mean over phase bins vs. time file, per key (max relative error)."""
+    keys = keys or [k for k in ds_phase.data_vars
+                    if k in ds_time.data_vars and k not in rs_keys_list]
+    out = {}
+    for k in keys:
+        ref = float(np.abs(ds_time[k]).max())
+        d = float(np.abs(phase_mean(ds_phase[k], phase_dim, weights) - ds_time[k]).max())
+        out[k] = d / ref if ref > 0 else np.nan
+    return out

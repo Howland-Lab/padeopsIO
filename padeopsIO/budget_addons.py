@@ -711,91 +711,111 @@ class BudgetMKE(NewBudget):
 
 # ====================== Triple-Decomposition Wave Budget ========================
 
+
 class WaveBudget(NewBudget):
     """
-    Base class for Wave Budget from Tiple Decomposition
-    TODO: add more information!! 
+    Wave-coherent momentum budget (Reynolds & Hussain 1972 triple decomposition).
+    Needs a phase-averaged budget (one phase, or all phases stacked along `phase`)
+    and the time-averaged budget. See fluids.compute_wave_budget() for the terms.
+
+    Aggregation (never sums over `phase`):
+         1 : keep j-components
+         0 : sum over j (default)
+        -1 : totaladv = adv + prod + wavewave + rs_phase + rs_time (= wave part of DuDt)
     """
 
     __slots__ = ()
-    req_keys = [
-        fluids.uvw_keys + fluids.rs_keys[0] + fluids.tau_keys[0] + ["pbar"],
-        fluids.uvw_keys + fluids.rs_keys[1] + fluids.tau_keys[1] + ["pbar"],
-        fluids.uvw_keys + fluids.rs_keys[2] + fluids.tau_keys[2] + ["pbar"],
-    ]  # required keys in x, y, z
-    opt_keys = [["xAD", "dpdx"], ["yAD", "dpdy"], ["Tbar", "dpdz"]]  # optional keys
+    req_keys = [fluids.uvw_keys + fluids.rs_keys[k] for k in range(3)]
+    opt_keys = [
+        fluids.tau_keys[0] + ["DuDt", "dpdx", "xSGS", "xAD", "pbar"],
+        fluids.tau_keys[1] + ["DvDt", "dpdy", "ySGS", "yAD", "pbar"],
+        fluids.tau_keys[2] + ["DwDt", "dpdz", "zSGS", "pbar"],
+    ]
+    _kw = ("storage", "period", "phase_period", "phase_dim", "adv_form", "coriolis",
+           "buoyancy", "prefer_solver_terms", "ddt_method", "verbose")
 
-    def __init__(
-        self,
-        budget,
-        base_agg=0,
-        Ro=None,
-        Fr=None,
-        lat=None,
-        galpha=0,
-        is_stratified=True,
-        theta0=None,
-        # TODO: what if we don't want to use Coriolis?
-    ):
-        """
-        Initialize non-dimensional Wave budget terms.
+    def __init__(self, budget_phase, budget_time, base_agg=0, *, storage="solver",
+                 period=None, phase_period=1.0, phase_dim="phase", adv_form="advective",
+                 coriolis=None, buoyancy=False, prefer_solver_terms=True,
+                 ddt_method="spectral", verbose=True):
+        if storage == "phases" and (period is None or phase_dim not in budget_phase.dims):
+            raise ValueError("storage='phases' needs all phase bins and `period`.")
+        super().__init__(budget_phase, base_agg)
+        self.attrs.update(
+            time_budget=budget_time, storage=storage, period=period,
+            phase_period=phase_period, phase_dim=phase_dim, adv_form=adv_form,
+            coriolis=coriolis, buoyancy=buoyancy, prefer_solver_terms=prefer_solver_terms,
+            ddt_method=ddt_method, verbose=verbose, direction=None,
+        )
 
-        Parameters
-        ----------
-        budget : budget.Budget object
-        base_agg : int
-        Ro : float
-            Rossby number, defined U/(Omega L)
-        Fr : float
-            Froude number, defined U/sqrt{g L}
-        lat : float
-            Latitude, in degrees
-        galpha : float
-            Geostrophic wind direction, in degrees
-        is_stratified : bool
-            Use stratification if True. Default True.
-        theta0 : float
-            Reference potential temperature (K)
-        """
-        super().__init__(budget, base_agg)
-        self.attrs["Ro"] = Ro
-        self.attrs["Fr"] = Fr
-        self.attrs["lat"] = lat * np.pi / 180 if lat else None
-        self.attrs["galpha"] = galpha * np.pi / 180 if galpha else 0
-        self.attrs["is_stratified"] = is_stratified
-        self.attrs["theta0"] = theta0
-        self.attrs["direction"] = None
+    def _check_terms(self, budget=None):
+        """Data cannot be lazily loaded here; verify keys in both budgets."""
+        i = self.attrs["direction"]
+        for name, ds in (("phase", self.budget), ("time", self.attrs["time_budget"])):
+            have = set(ds.data_vars)
+            missing = [k for k in fluids.uvw_keys + fluids.rs_keys[i] if k not in have]
+            if fluids.dpdxi_keys[i] not in have and "pbar" not in have:
+                missing.append(f"{fluids.dpdxi_keys[i]} or pbar")
+            if not (fluids.sgs_keys[i] in have or all(k in have for k in fluids.tau_keys[i])):
+                missing.append(f"{fluids.sgs_keys[i]} or {fluids.tau_keys[i]}")
+            if self.attrs["storage"] == "solver" and fluids.les_keys[i]["nonlin"] not in have:
+                missing.append(fluids.les_keys[i]["nonlin"])
+            if missing:
+                raise KeyError(f"WaveBudget: {name} budget is missing {missing}.")
 
     def _compute_budget(self):
-        """
-        Computes Wave budgets in x.
-        """
-        self.base_terms = fluids.compute_WAVE(
-            self.budget,
-            self.direction,
-            Ro=self.Ro,
-            lat=self.lat,
-            galpha=self.galpha,
-            is_stratified=self.is_stratified,
-            Fr=self.Fr,
-            theta0=self.theta0,
-        )
-        fluids.compute_residual(self.base_terms, in_place=True)
+        kw = {k: self.attrs[k] for k in self._kw}
+        terms = fluids.compute_wave_budget(self.budget, self.attrs["time_budget"],
+                                           self.attrs["direction"], **kw)
+        fluids.compute_wave_residual(terms, in_place=True)
+        self.base_terms = terms
+
+    def aggregate(self, aggregate=None, custom=False, **kwargs):
+        if aggregate is None:
+            aggregate = self.attrs["base_agg"]
+        if custom or aggregate == -1:
+            self._aggregate_custom(aggregate, **kwargs)
+            return
+        self.clear()
+        for key, da in self.base_terms.data_vars.items():
+            self[key] = fluids.sum_over(da, ("j",)) if aggregate == 0 else da
+
+    def _aggregate_custom(self, aggregate, **kwargs):
+        if aggregate == -1:
+            kwargs = {"totaladv": -1}
+            aggregate = 0
+        self.aggregate(aggregate)
+        if kwargs.get("totaladv") == -1:
+            self["totaladv"] = sum(self.pop(k) for k in
+                                   ("adv", "prod", "wavewave", "rs_phase", "rs_time"))
+        self["residual"] = self.pop("residual")
+
 
 class Wave_x(WaveBudget):
-    """
-    Computes the Wave budgets in the x-direction.
-    """
-
     __slots__ = ()
     req_keys = WaveBudget.req_keys[0]
     opt_keys = WaveBudget.opt_keys[0]
 
     def __init__(self, *args, **kwargs):
-        """
-        Initialize non-dimensional Wave budget terms.
-
-        see BudgetMomentum()
-        """
         super().__init__(*args, **kwargs)
-        self.attrs["dim_key"] = "x"  # x-direction
+        self.attrs["direction"] = 0
+
+
+class Wave_y(WaveBudget):
+    __slots__ = ()
+    req_keys = WaveBudget.req_keys[1]
+    opt_keys = WaveBudget.opt_keys[1]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attrs["direction"] = 1
+
+
+class Wave_z(WaveBudget):
+    __slots__ = ()
+    req_keys = WaveBudget.req_keys[2]
+    opt_keys = WaveBudget.opt_keys[2]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attrs["direction"] = 2
