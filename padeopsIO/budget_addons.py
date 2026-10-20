@@ -805,10 +805,84 @@ class WaveBudget(NewBudget):
             Fr=self.attrs["Fr"],
             theta0=self.attrs["theta0"],
         )
-        fluids.compute_residual(self.base_terms, in_place=True)
 
-    def _aggregate_custom(self, aggregate, **kwargs):
-        self["residual"] = self.pop("residual")  # move the residual to the end
+        # Compute a phase-resolved residual.
+        # Sum over j where present, but never reduce the phase dimension.
+        residual = None
+
+        for key, term in self.base_terms.data_vars.items():
+            if key == "residual":
+                continue
+
+            if "j" in term.dims:
+                term = term.sum(dim="j")
+
+            residual = term if residual is None else residual + term
+
+        if residual is None:
+            raise ValueError("Cannot compute residual: no budget terms found.")
+
+        self.base_terms["residual"] = residual
+
+    def aggregate(self, aggregate=None, custom=False, **kwargs):
+        """
+        Aggregate wave-budget terms without reducing the phase dimension.
+
+        aggregate = 1 : retain j-components
+        aggregate = 0 : sum over j
+        aggregate = -1: combine adv + prod + wavewave + rs into totaladv
+                    after summing over j
+        """
+        if aggregate is None:
+            aggregate = self.attrs["base_agg"]
+
+        if aggregate not in (-1, 0, 1):
+            raise ValueError("WaveBudget aggregate must be -1, 0, or 1.")
+
+        if kwargs:
+            raise TypeError(
+                f"Unsupported WaveBudget aggregation options: {list(kwargs)}"
+            )
+
+        # -1 means first sum over j, then combine the specified terms.
+        level = 0 if aggregate == -1 else aggregate
+
+        # Clear the previously aggregated output, not self.base_terms.
+        self.clear()
+
+        terms = {}
+
+        for key, term in self.base_terms.data_vars.items():
+            if key == "residual":
+                continue
+
+            # Only aggregate j; phase and spatial dimensions remain untouched.
+            if level == 0 and "j" in term.dims:
+                term = term.sum(dim="j")
+
+            terms[key] = term
+
+        # if aggregate == -1:
+        #     combined_keys = ("adv", "prod", "wavewave", "rs")
+        #     present = [key for key in combined_keys if key in terms]
+
+        #     if not present:
+        #         raise ValueError("No terms available to compute totaladv.")
+
+        #     totaladv = terms[present[0]]
+        #     for key in present[1:]:
+        #         totaladv = totaladv + terms[key]
+
+        #     for key in combined_keys:
+        #         terms.pop(key, None)
+
+        #     terms["totaladv"] = totaladv
+
+        # Add all terms, then the residual last.
+        for key, term in terms.items():
+            self[key] = term
+
+        self["residual"] = self.base_terms["residual"]
 
 
 class Wave_x(WaveBudget):
