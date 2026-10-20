@@ -808,16 +808,6 @@ class WaveBudget(NewBudget):
         fluids.compute_residual(self.base_terms, in_place=True)
 
     def _aggregate_custom(self, aggregate, **kwargs):
-        """Combine wave-advection terms at aggregation level -1."""
-        if aggregate == -1:
-            kwargs = {"totaladv": -1}
-            aggregate = 0
-
-        self.aggregate(aggregate, **kwargs)
-        if kwargs.get("totaladv") == -1:
-            self["totaladv"] = self["adv"] + self["prod"] + self["wavewave"] + self["rs"]
-            del self["adv"], self["prod"], self["wavewave"], self["rs"]
-
         self["residual"] = self.pop("residual")  # move the residual to the end
 
 
